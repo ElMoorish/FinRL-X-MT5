@@ -14,7 +14,26 @@ It eliminates standard single-agent failure modes through the **K-Dense Council*
 
 ---
 
+## 🖥️ Live Council Terminal & Dashboard
+
+FinRL-X-MT5 features a high-performance local web dashboard with real-time TradingView Lightweight Charts, a live 5-expert deliberation room, prop firm guardian circuit breaker gauges, and an autonomous step-by-step Chain-of-Thought (CoT) reasoning stream.
+
+<p align="center">
+  <img src="docs/assets/dashboard_dark_sanitized.png" alt="FinRL-X-MT5 Dark Mode Terminal" width="100%">
+  <br>
+  <em>Dark Mode: Real-time Multi-Agent Deliberations, Prop Firm Guardian Gauges & Step-by-Step CoT Stream</em>
+</p>
+
+<p align="center">
+  <img src="docs/assets/dashboard_white_sanitized.png" alt="FinRL-X-MT5 White Mode Terminal" width="100%">
+  <br>
+  <em>White Mode: Clean Institutional Layout with Precision Tick Feed & Solvency Meters</em>
+</p>
+
+---
+
 ## 🏛️ Architecture Overview
+
 
 ```
                                ┌──────────────────────────────────────────────┐

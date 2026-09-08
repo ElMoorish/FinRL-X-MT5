@@ -56,3 +56,11 @@ mql5/*.ex5
 scratch/
 scratch_*.txt
 .system_generated/
+
+# Raw unsanitized screenshots
+*-mode.jpg
+*-mode.png
+test_*.png
+ref_*.png
+pill_*.png
+scratch_*.png
