@@ -75,6 +75,10 @@
                     <span class="theme-icon" id="themeIcon">☀️</span>
                     <span class="theme-label" id="themeLabel">LIGHT</span>
                 </button>
+                <button class="btn-donate" id="donateBtn" title="Support Development (USDT TRC20)">
+                    <span class="donate-icon">☕</span>
+                    <span class="donate-label">DONATE</span>
+                </button>
             </div>
         </header>
 
@@ -275,6 +279,37 @@
                 </div>
             </section>
         </main>
+    <!-- ── Donation Modal ──────────────────────────────────────────────── -->
+    <div class="modal-overlay" id="donateModal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div class="modal-title-group">
+                    <span class="modal-icon">☕</span>
+                    <span class="modal-title">Support FinRL-X-MT5</span>
+                </div>
+                <button class="btn-close-modal" id="closeDonateModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">
+                    If this multi-agent system assists your algorithmic trading research or prop firm challenge evaluations, consider buying us a coffee or donating to support continuous R&D and GPU compute!
+                </p>
+                <div class="crypto-card">
+                    <div class="crypto-meta">
+                        <span class="crypto-badge">USDT</span>
+                        <span class="crypto-network">TRON (TRC20)</span>
+                    </div>
+                    <div class="crypto-address-row">
+                        <input type="text" readonly class="crypto-address font-mono" id="trc20Address" value="TC8TFkemSFGEeBPF5ZQKbmjK97FVEGwrwc">
+                        <button class="btn-copy" id="btnCopyAddress" title="Copy Address">
+                            <span id="copyText">COPY</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer-note">
+                    ⚠️ <strong>Notice:</strong> Please verify you transfer over the <strong>TRON (TRC20)</strong> network.
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Application Script -->

@@ -16,6 +16,7 @@ const GAUGE_CIRCUMFERENCE = 263.89;
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
     initTheme();
+    initDonationModal();
     initWebSocket();
     setupEventListeners();
 
@@ -495,5 +496,60 @@ function applyTheme(theme) {
                 },
             });
         }
+    }
+}
+
+// ─── 6. Support & Donation Modal ──────────────────────────────────────────────
+function initDonationModal() {
+    const donateBtn = document.getElementById("donateBtn");
+    const modal = document.getElementById("donateModal");
+    const closeBtn = document.getElementById("closeDonateModal");
+    const copyBtn = document.getElementById("btnCopyAddress");
+    const copyText = document.getElementById("copyText");
+    const addrInput = document.getElementById("trc20Address");
+
+    if (donateBtn && modal) {
+        donateBtn.addEventListener("click", () => {
+            modal.style.display = "flex";
+        });
+    }
+
+    if (closeBtn && modal) {
+        closeBtn.addEventListener("click", () => {
+            modal.style.display = "none";
+        });
+    }
+
+    if (modal) {
+        modal.addEventListener("click", (e) => {
+            if (e.target === modal) {
+                modal.style.display = "none";
+            }
+        });
+    }
+
+    if (copyBtn && addrInput) {
+        copyBtn.addEventListener("click", () => {
+            addrInput.select();
+            addrInput.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(addrInput.value).then(() => {
+                if (copyText) {
+                    copyText.innerText = "COPIED! ✅";
+                    copyBtn.style.background = "#10b981";
+                    setTimeout(() => {
+                        copyText.innerText = "COPY";
+                        copyBtn.style.background = "";
+                    }, 2000);
+                }
+            }).catch(() => {
+                document.execCommand("copy");
+                if (copyText) {
+                    copyText.innerText = "COPIED! ✅";
+                    setTimeout(() => {
+                        copyText.innerText = "COPY";
+                    }, 2000);
+                }
+            });
+        });
     }
 }

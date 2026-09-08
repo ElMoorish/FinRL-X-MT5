@@ -6,6 +6,7 @@
 [![MetaTrader 5](https://img.shields.io/badge/MetaTrader-5%20Bridge-0078D4?style=flat&logo=windows&logoColor=white)](https://www.metatrader5.com)
 [![Polars](https://img.shields.io/badge/Data-Polars%20Vectorized-CD792C?style=flat)](https://pola.rs)
 [![Architecture](https://img.shields.io/badge/Architecture-MoE%20%2B%20NSGA--III-blueviolet?style=flat)](#-architecture-overview)
+[![Donate USDT](https://img.shields.io/badge/Donate-USDT%20(TRC20)-26A17B?style=flat&logo=tether&logoColor=white)](#-support--donations)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](LICENSE)
 
 **FinRL-X-MT5** is an institutional-grade algorithmic trading framework that adapts the Deep Reinforcement Learning principles of [FinRL](https://github.com/AI4Finance-Foundation/FinRL) to **MetaTrader 5**. 
@@ -172,6 +173,30 @@ Deep-dive documentation is available in the `docs/` folder:
 This repository skeleton contains **NO private broker account numbers, passwords, server IPs, or proprietary client files**.
 - `.gitignore` strictly excludes `.env`, `models/`, `logs/`, SQLite databases, tick caches, and local MT5 data paths.
 - All credentials are abstracted via environment variables (`pydantic-settings`).
+
+---
+
+## ☕ Support & Donations
+
+If **FinRL-X-MT5** has assisted your quantitative research, automated trading operations, or prop firm challenge evaluations, consider buying us a coffee or donating to support ongoing open-source R&D!
+
+| Network | Asset / Token | Deposit Address |
+|:---|:---|:---|
+| **TRON (TRC20)** | **USDT (Tether USD)** | `TC8TFkemSFGEeBPF5ZQKbmjK97FVEGwrwc` |
+
+<p align="left">
+  <a href="#-support--donations"><img src="https://img.shields.io/badge/USDT-TRC20-26A17B?style=for-the-badge&logo=tether&logoColor=white" alt="USDT TRC20" /></a>
+  <a href="#-support--donations"><img src="https://img.shields.io/badge/Network-TRON-FF0013?style=for-the-badge&logo=tron&logoColor=white" alt="TRON Network" /></a>
+  <a href="#-support--donations"><img src="https://img.shields.io/badge/Support-Buy%20Us%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Us A Coffee" /></a>
+</p>
+
+```text
+TRC20 Deposit Address:
+TC8TFkemSFGEeBPF5ZQKbmjK97FVEGwrwc
+```
+
+> [!NOTE]
+> **Network Notice:** Please verify that you select the **TRON (TRC20)** network when sending USDT transfers. Every contribution directly funds GPU compute clusters for model training, tick data storage, and future reinforcement learning upgrades.
 
 ---
 
