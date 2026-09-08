@@ -1,0 +1,57 @@
+# FinRL-X-MT5 .gitignore
+# Institutional Open-Source Skeleton Hygiene
+
+# Credentials & Environment
+.env
+.env.local
+*.key
+*.pem
+*.secret
+
+# Model artifacts (large binary files)
+models/
+logs/
+data/ticks/
+data/cache/
+data/*.csv
+data/*.parquet
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb~
+
+# IDE & Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating System
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# MT5 Artifacts
+mql5/*.ex5
+*.log
+scratch/
+.system_generated/

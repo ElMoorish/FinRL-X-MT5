@@ -1,0 +1,65 @@
+# FinRL-X-MT5 Requirements
+# K-Dense Council — MoE Trading System
+# Instruments: NAS100/USTEC, USOIL, XAUUSD, US30
+# Backtesting: MT5 Strategy Tester — Every Tick Based on Real Ticks
+
+# ─── MT5 Bridge ───────────────────────────────────────────────────────────────
+MetaTrader5>=5.0.4780          # Windows-only MT5 Python API
+
+# ─── K-Dense Council Experts ──────────────────────────────────────────────────
+stable-baselines3>=2.8.0       # Expert 1: PPO / SAC DRL agent
+sb3-contrib>=2.8.0             # RecurrentPPO, MaskablePPO extras
+gymnasium>=1.0.0               # RL environment base
+
+hmmlearn>=0.3.3                # Expert 2: HMM market regime
+aeon>=1.1.0                    # Expert 2: Time-series ML (clustering/classification)
+
+timesfm[torch]>=1.2.7          # Expert 3: Google TimesFM 2.5 zero-shot forecasting
+
+xgboost>=2.1.0                 # Expert 4: SHAP signal scorer base model
+shap>=0.47.0                   # Expert 4: Feature attribution
+
+pymc>=5.20.0                   # Expert 5: Bayesian TP/SL inference
+pytensor>=2.25.0               # PyMC backend
+
+# ─── Council Gate ─────────────────────────────────────────────────────────────
+pymoo==0.6.1.6                 # NSGA-III Pareto-optimal expert weighting
+
+# ─── Data Processing ──────────────────────────────────────────────────────────
+polars>=1.20.0                 # Fast tick data processing (Rust-backed)
+pandas>=2.2.0                  # Yahoo/FMP data compatibility
+numpy>=2.0.0
+scipy>=1.14.0
+
+# ─── Market Data Sources (correlation layer) ──────────────────────────────────
+yfinance>=0.2.50               # Yahoo Finance (QQQ, XLE, GLD constituents)
+requests>=2.32.0               # FMP API calls
+
+# ─── Deep Learning ────────────────────────────────────────────────────────────
+torch>=2.3.0                   # PyTorch (SB3 + TimesFM)
+
+# ─── Backtesting (Python-side fast iteration) ─────────────────────────────────
+bt>=0.2.9                      # FinRL-X bt-powered backtest engine
+pyfolio-reloaded>=0.9.5        # Portfolio analytics
+
+# ─── Storage ──────────────────────────────────────────────────────────────────
+SQLAlchemy>=2.0.0
+pydantic>=2.9.0                # Typed settings / config
+pydantic-settings>=2.0.0       # BaseSettings integration
+
+# ─── Visualization ────────────────────────────────────────────────────────────
+matplotlib>=3.9.0
+plotly>=5.24.0
+seaborn>=0.13.0
+
+# ─── ML Utilities ─────────────────────────────────────────────────────────────
+scikit-learn>=1.6.0
+statsmodels>=0.14.4
+lightgbm>=4.5.0                # Optional: alternative to XGBoost
+
+# ─── Development ──────────────────────────────────────────────────────────────
+tensorboard>=2.18.0
+tqdm>=4.67.0
+loguru>=0.7.2
+python-dotenv>=1.0.1
+jupyterlab>=4.3.0
