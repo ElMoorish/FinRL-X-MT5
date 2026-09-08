@@ -171,58 +171,69 @@ def cmd_live(args):
 
 
 def cmd_backtest(args):
-    """Run Python-side fast backtest (bt-powered)."""
+    """Run Python-side institutional backtest simulation."""
     from src.data.mt5_tick_fetcher   import MT5TickFetcher
     from src.data.correlation_fuser  import CorrelationFuser
     from src.council.council         import Council
+    from src.backtest.backtest_engine import BacktestEngine
+    from src.trading.performance_analyzer import PerformanceAnalyzer
 
-    symbol   = args.symbol
-    start_dt = datetime.strptime(args.start, "%Y-%m-%d")
-    end_dt   = datetime.strptime(args.end,   "%Y-%m-%d")
+    if getattr(args, "all_symbols", False):
+        symbols = settings.mt5.symbols
+    elif getattr(args, "symbols", None):
+        symbols = args.symbols
+    else:
+        symbols = [args.symbol]
 
-    logger.info(f"📊 Backtesting {symbol} | {start_dt.date()} → {end_dt.date()}")
+    if getattr(args, "days", None):
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(days=args.days)
+    else:
+        start_dt = datetime.strptime(args.start, "%Y-%m-%d")
+        end_dt   = datetime.strptime(args.end,   "%Y-%m-%d")
+
+    logger.info(f"📊 Backtesting universe ({len(symbols)} symbols) | {start_dt.date()} → {end_dt.date()}")
     logger.info("💡 For MT5 real-tick backtest, use the MQL5 EA in mql5/FinRL_X_MT5.mq5")
 
+    results = []
     with MT5TickFetcher() as fetcher:
-        fuser    = CorrelationFuser(tick_fetcher=fetcher)
-        features = fuser.build_feature_store(symbol, start_dt, end_dt)
+        fuser = CorrelationFuser(tick_fetcher=fetcher)
+        for sym in symbols:
+            try:
+                features = fuser.build_feature_store(sym, start_dt, end_dt)
+                if features.is_empty():
+                    logger.warning(f"No feature data retrieved for {sym}")
+                    continue
 
-    council  = Council().load(symbol)
+                council = Council().load(sym)
+                engine = BacktestEngine(initial_balance=10_000.0)
+                features_pd = features.to_pandas()
 
-    # Generate signals for all bars
-    decisions = []
-    window    = 200
-    for t in range(window, len(features)):
-        bar_features = features[:t]
-        decision     = council.decide(bar_features, symbol)
-        decisions.append({
-            "time":     bar_features["time"][-1],
-            "signal":   decision.consensus_signal,
-            "direction": decision.direction,
-            "regime":   decision.regime,
-            "confidence": decision.council_confidence,
-        })
+                metrics, equity_df, trades = engine.run(sym, features_pd, council)
+                report = PerformanceAnalyzer.format_report(metrics, f"Backtest Results — {sym}")
+                logger.info("\n" + report)
 
-    import polars as pl
-    decisions_df = pl.DataFrame(decisions)
+                results.append({
+                    "Symbol": sym,
+                    "Trades": metrics.total_trades,
+                    "Win Rate": f"{metrics.win_rate:.1%}",
+                    "Profit Factor": f"{metrics.profit_factor:.2f}",
+                    "Net Profit": f"${metrics.net_profit:,.2f}",
+                    "Max DD": f"{metrics.max_drawdown_pct:.1%}",
+                    "Sharpe": f"{metrics.sharpe_ratio:.2f}",
+                    "Sortino": f"{metrics.sortino_ratio:.2f}",
+                })
+            except Exception as e:
+                logger.error(f"Failed backtesting {sym}: {e}")
 
-    # Simple PnL calculation
-    returns = features["return_pct"].to_numpy()[window:]
-    signals = decisions_df["signal"].to_numpy()
-    pnl     = signals * (returns / 100.0) - 0.0002 * abs(signals - shift(signals))
-
-    total_return   = (1 + pnl).prod() - 1
-    sharpe         = pnl.mean() / (pnl.std() + 1e-8) * (252 * 12) ** 0.5
-    win_rate       = (pnl > 0).mean()
-    max_dd         = max_drawdown(pnl)
-
-    logger.info("=" * 50)
-    logger.info(f"📈 BACKTEST RESULTS — {symbol}")
-    logger.info(f"   Total Return:  {total_return:.2%}")
-    logger.info(f"   Sharpe Ratio:  {sharpe:.3f}")
-    logger.info(f"   Win Rate:      {win_rate:.2%}")
-    logger.info(f"   Max Drawdown:  {max_dd:.2%}")
-    logger.info("=" * 50)
+    if len(results) > 1:
+        import pandas as pd
+        summary_df = pd.DataFrame(results)
+        print("\n" + "="*80)
+        print("🏛️ K-DENSE COUNCIL UNIVERSE BACKTEST SUMMARY")
+        print("="*80)
+        print(summary_df.to_markdown(index=False))
+        print("="*80 + "\n")
 
 
 def shift(arr):
@@ -304,10 +315,13 @@ def main():
     p_live.add_argument("--symbols", nargs="+", default=["NAS100.x", "WTI.x", "XAGUSD.x"], help="MT5 symbols to trade")
 
     # backtest
-    p_bt = sub.add_parser("backtest", help="Python-side fast backtest")
-    p_bt.add_argument("--symbol", default="NAS100.x")
-    p_bt.add_argument("--start",  default="2024-01-01")
-    p_bt.add_argument("--end",    default="2025-01-01")
+    p_bt = sub.add_parser("backtest", help="Python-side institutional backtest")
+    p_bt.add_argument("--symbol", default="NAS100.x", help="Single symbol to backtest")
+    p_bt.add_argument("--symbols", nargs="+", help="Multiple symbols to backtest in sequence")
+    p_bt.add_argument("--all-symbols", action="store_true", help="Backtest all symbols in configured universe")
+    p_bt.add_argument("--days",   type=int, default=None, help="Days of history to backtest")
+    p_bt.add_argument("--start",  default="2026-07-01")
+    p_bt.add_argument("--end",    default="2026-09-08")
 
     # export-signals (MT5 Strategy Tester)
     p_exp = sub.add_parser("export-signals", help="Generate & deploy signals for MT5 Strategy Tester (Every tick based on real ticks)")
