@@ -57,11 +57,12 @@ class MT5Settings(BaseSettings):
     # MT5 constants: M1=1, M5=5, M15=15, M30=30, H1=16385, H4=16388, D1=16408
     timeframe_minutes: int = Field(5, description="Bar aggregation timeframe in minutes")
 
-    # Position sizing
-    default_risk_pct: float = Field(0.02, description="Max risk per trade as % of equity")
-    max_portfolio_risk_pct: float = Field(0.05, description="Max total portfolio risk %")
-    max_drawdown_halt_pct: float = Field(0.10, description="Drawdown % that halts trading")
-    min_free_margin_pct: float = Field(0.30, description="Min free margin % before blocking orders")
+    # Position sizing & Prop Firm Safety Presets (Ultra-Safe Profile)
+    default_risk_pct: float = Field(0.005, description="Max risk per trade as % of equity (0.005 = 0.5% Ultra-Safe)")
+    max_portfolio_risk_pct: float = Field(0.02, description="Max total portfolio risk % (2.0% Ultra-Safe cap)")
+    max_drawdown_halt_pct: float = Field(0.04, description="Peak-to-trough Drawdown % that halts trading (4.0% hard stop)")
+    max_daily_loss_pct: float = Field(0.025, description="Max daily drawdown before circuit breaker trips (2.5% daily stop)")
+    min_free_margin_pct: float = Field(0.40, description="Min free margin % before blocking orders (40% free margin guard)")
 
     # Instrument-specific lot config (verified against broker terminal specifications)
     instrument_config: dict = Field(

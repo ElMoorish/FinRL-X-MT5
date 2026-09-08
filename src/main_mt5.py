@@ -162,10 +162,13 @@ def cmd_live(args):
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
 
-            # Wait for next M5 bar
-            tf_seconds = settings.mt5.timeframe_minutes * 60
-            logger.debug(f"💤 Sleeping {tf_seconds}s until next bar...")
-            time.sleep(tf_seconds)
+            # Sleep precisely until the next M5 bar close (plus 1.5s buffer)
+            now = datetime.now()
+            tf_min = settings.mt5.timeframe_minutes
+            sec_into_bar = (now.minute % tf_min) * 60 + now.second + (now.microsecond / 1_000_000.0)
+            sleep_sec = max(2.0, (tf_min * 60) - sec_into_bar + 1.5)
+            logger.info(f"💤 Sleeping {sleep_sec:.1f}s until next M{tf_min} bar close...")
+            time.sleep(sleep_sec)
 
     logger.info("Council live trading stopped.")
 
@@ -312,7 +315,7 @@ def main():
 
     # live
     p_live = sub.add_parser("live", help="Live/paper trading")
-    p_live.add_argument("--symbols", nargs="+", default=["NAS100.x", "WTI.x", "XAGUSD.x"], help="MT5 symbols to trade")
+    p_live.add_argument("--symbols", nargs="+", default=["NAS100.x"], help="MT5 symbols to trade (default: NAS100.x)")
 
     # backtest
     p_bt = sub.add_parser("backtest", help="Python-side institutional backtest")

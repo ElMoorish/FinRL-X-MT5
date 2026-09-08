@@ -54,4 +54,5 @@ desktop.ini
 mql5/*.ex5
 *.log
 scratch/
+scratch_*.txt
 .system_generated/

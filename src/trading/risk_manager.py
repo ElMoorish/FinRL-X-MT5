@@ -58,8 +58,15 @@ class RiskManager:
         # 2. Daily Drawdown Circuit Breaker
         if self._initial_day_equity and self._initial_day_equity > 0:
             daily_dd = (self._initial_day_equity - acc.equity) / self._initial_day_equity
-            if daily_dd >= self.cfg.max_drawdown_halt_pct:
-                return False, f"Daily drawdown halt triggered ({daily_dd:.2%} >= {self.cfg.max_drawdown_halt_pct:.2%})"
+            daily_limit = getattr(self.cfg, "max_daily_loss_pct", 0.025)
+            if daily_dd >= daily_limit:
+                return False, f"Daily drawdown halt triggered ({daily_dd:.2%} >= {daily_limit:.2%})"
+
+        # 2b. Total Account Drawdown Circuit Breaker (Peak-to-Trough)
+        if acc.balance > 0:
+            total_dd = 1.0 - (acc.equity / acc.balance)
+            if total_dd >= self.cfg.max_drawdown_halt_pct:
+                return False, f"Total drawdown halt triggered ({total_dd:.2%} >= {self.cfg.max_drawdown_halt_pct:.2%})"
 
         # 3. Free margin check
         if acc.equity > 0:

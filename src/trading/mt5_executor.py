@@ -30,9 +30,11 @@ class MT5Executor:
     """
 
     def __init__(self, lot_sizer=None, risk_manager=None):
+        from src.trading.mt5_lot_sizer import MT5LotSizer
+        from src.trading.risk_manager import RiskManager
         self.cfg        = settings.mt5
-        self._lot_sizer = lot_sizer
-        self._risk_mgr  = risk_manager
+        self._lot_sizer = lot_sizer or MT5LotSizer()
+        self._risk_mgr  = risk_manager or RiskManager()
 
     # ─── Main Execute ────────────────────────────────────────────────────────
 
@@ -55,7 +57,7 @@ class MT5Executor:
             return None
 
         # 2. Pre-trade risk checks
-        if not self._pre_trade_checks(symbol, equity):
+        if not self._pre_trade_checks(symbol, equity, decision):
             return None
 
         # 3. Close opposite position if exists
@@ -109,8 +111,14 @@ class MT5Executor:
 
     # ─── Pre-Trade Checks ────────────────────────────────────────────────────
 
-    def _pre_trade_checks(self, symbol: str, equity: float) -> bool:
+    def _pre_trade_checks(self, symbol: str, equity: float, decision: Optional[TradingDecision] = None) -> bool:
         """Run all pre-trade safety checks. Returns False to block order."""
+        if self._risk_mgr is not None and decision is not None:
+            ok, reason = self._risk_mgr.validate_trade(decision)
+            if not ok:
+                logger.warning(f"⛔ RiskManager blocked {symbol}: {reason}")
+                return False
+
         acc  = mt5.account_info()
         info = mt5.symbol_info(symbol)
 
@@ -182,6 +190,9 @@ class MT5Executor:
         equity: float,
     ) -> Optional[float]:
         """Compute lot size from decision position_size and equity."""
+        if self._lot_sizer is not None:
+            return self._lot_sizer.calculate_lots(symbol, decision, equity)
+
         inst_cfg = self.cfg.instrument_config.get(symbol, {})
         if not inst_cfg:
             logger.error(f"No instrument config for {symbol}")
