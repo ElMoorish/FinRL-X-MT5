@@ -753,3 +753,96 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.25); }
+
+/* ─── White / Light Mode Theme System ──────────────────────────────────────── */
+body.light-mode {
+    --bg-deep: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #f1f5f9;
+    --bg-card: rgba(255, 255, 255, 0.92);
+    --border-subtle: rgba(15, 23, 42, 0.09);
+    --border-accent: rgba(2, 132, 199, 0.35);
+    
+    --accent-cyan: #0284c7;
+    --accent-blue: #2563eb;
+    --accent-emerald: #059669;
+    --accent-amber: #d97706;
+    --accent-rose: #e11d48;
+    --accent-purple: #7c3aed;
+    
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    
+    --glow-cyan: 0 0 20px rgba(2, 132, 199, 0.15);
+    --glow-emerald: 0 0 16px rgba(5, 150, 105, 0.15);
+    --glow-card: 0 10px 25px rgba(15, 23, 42, 0.05);
+
+    background-color: var(--bg-deep);
+    background-image: 
+        radial-gradient(at 0% 0%, rgba(2, 132, 199, 0.06) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(124, 58, 237, 0.04) 0px, transparent 50%);
+}
+
+body.light-mode .topbar {
+    background: rgba(255, 255, 255, 0.95);
+    border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .cot-terminal {
+    background: #f8fafc;
+    border: 1px solid var(--border-subtle);
+}
+
+body.light-mode .cot-terminal .log-system {
+    color: #475569;
+}
+
+body.light-mode .gauge-bg {
+    stroke: rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .signal-thermometer {
+    background: rgba(15, 23, 42, 0.08);
+}
+
+body.light-mode .thermometer-mid {
+    background: rgba(15, 23, 42, 0.35);
+}
+
+body.light-mode .data-table th {
+    background: rgba(15, 23, 42, 0.03);
+    color: var(--text-muted);
+}
+
+body.light-mode .data-table td {
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+    color: var(--text-secondary);
+}
+
+body.light-mode ::-webkit-scrollbar-thumb {
+    background: rgba(15, 23, 42, 0.2);
+}
+
+/* Theme Toggle Button */
+.btn-theme-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    padding: 6px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    transition: all 0.25s ease;
+}
+
+.btn-theme-toggle:hover {
+    border-color: var(--accent-cyan);
+    box-shadow: var(--glow-cyan);
+    transform: translateY(-1px);
+}

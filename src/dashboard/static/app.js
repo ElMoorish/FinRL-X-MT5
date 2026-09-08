@@ -15,6 +15,7 @@ const GAUGE_CIRCUMFERENCE = 263.89;
 
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
+    initTheme();
     initWebSocket();
     setupEventListeners();
 
@@ -422,5 +423,77 @@ function setupEventListeners() {
             fetchChartBars(activeSymbol);
             fetchAccount();
         });
+    }
+}
+
+// ─── 5. Theme Management (Dark / White Mode) ─────────────────────────────────
+function initTheme() {
+    const savedTheme = localStorage.getItem("finrl_theme") || "dark";
+    applyTheme(savedTheme);
+
+    const themeBtn = document.getElementById("themeToggle");
+    if (themeBtn) {
+        themeBtn.addEventListener("click", () => {
+            const currentTheme = document.body.classList.contains("light-mode") ? "light" : "dark";
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            applyTheme(newTheme);
+        });
+    }
+}
+
+function applyTheme(theme) {
+    const icon = document.getElementById("themeIcon");
+    const label = document.getElementById("themeLabel");
+
+    if (theme === "light") {
+        document.body.classList.add("light-mode");
+        if (icon) icon.innerText = "🌙";
+        if (label) label.innerText = "DARK";
+        localStorage.setItem("finrl_theme", "light");
+
+        // Update TradingView Chart for Light Mode
+        if (chartInstance) {
+            chartInstance.applyOptions({
+                layout: {
+                    background: { color: "#ffffff" },
+                    textColor: "#475569",
+                },
+                grid: {
+                    vertLines: { color: "rgba(15, 23, 42, 0.05)" },
+                    horzLines: { color: "rgba(15, 23, 42, 0.05)" },
+                },
+                rightPriceScale: {
+                    borderColor: "rgba(15, 23, 42, 0.08)",
+                },
+                timeScale: {
+                    borderColor: "rgba(15, 23, 42, 0.08)",
+                },
+            });
+        }
+    } else {
+        document.body.classList.remove("light-mode");
+        if (icon) icon.innerText = "☀️";
+        if (label) label.innerText = "LIGHT";
+        localStorage.setItem("finrl_theme", "dark");
+
+        // Update TradingView Chart for Dark Mode
+        if (chartInstance) {
+            chartInstance.applyOptions({
+                layout: {
+                    background: { color: "#07090e" },
+                    textColor: "#94a3b8",
+                },
+                grid: {
+                    vertLines: { color: "rgba(255, 255, 255, 0.04)" },
+                    horzLines: { color: "rgba(255, 255, 255, 0.04)" },
+                },
+                rightPriceScale: {
+                    borderColor: "rgba(255, 255, 255, 0.08)",
+                },
+                timeScale: {
+                    borderColor: "rgba(255, 255, 255, 0.08)",
+                },
+            });
+        }
     }
 }
