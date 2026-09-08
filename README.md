@@ -114,7 +114,7 @@ The framework supports multiple asset classes with automatic contract-size norma
 ### 2. Installation
 ```powershell
 # Clone repository skeleton
-git clone https://github.com/your-username/FinRL-X-MT5.git
+git clone https://github.com/ElMoorish/FinRL-X-MT5.git
 cd FinRL-X-MT5
 
 # Install dependencies
