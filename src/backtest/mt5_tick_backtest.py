@@ -94,22 +94,24 @@ class MT5TickBacktestBridge:
         warmup = min(100, len(df_pd) // 4)
         logger.info(f"Running Council evaluation across {len(df_pd) - warmup} bars...")
 
-        for i in range(warmup, len(df_pd)):
+        for i in range(warmup, len(df_pd) - 1):
             window = df_pd.iloc[max(0, i - 120):i + 1]
             current_bar = df_pd.iloc[i]
-            bar_time = current_bar["time"]
+            # Anti-lookahead: signal evaluated on bar i is executed at the open of bar i+1
+            next_bar = df_pd.iloc[i + 1]
+            exec_time = next_bar["time"]
 
             # Format datetime for MT5: YYYY.MM.DD HH:MM:SS
-            if isinstance(bar_time, str):
-                dt_obj = pd.to_datetime(bar_time)
-            elif isinstance(bar_time, (int, float)):
-                dt_obj = datetime.fromtimestamp(bar_time, tz=timezone.utc)
+            if isinstance(exec_time, str):
+                dt_obj = pd.to_datetime(exec_time)
+            elif isinstance(exec_time, (int, float)):
+                dt_obj = datetime.fromtimestamp(exec_time, tz=timezone.utc)
             else:
-                dt_obj = bar_time
+                dt_obj = exec_time
 
             time_str = dt_obj.strftime("%Y.%m.%d %H:%M:%S")
 
-            # Evaluate through Council
+            # Evaluate through Council on completed bar window
             decision: TradingDecision = self.council.evaluate(symbol, window)
 
             signals_records.append({
