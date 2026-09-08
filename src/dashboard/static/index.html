@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinRL-X-MT5 | The K-Dense Council Terminal</title>
+    <!-- Google Fonts: Outfit & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="terminal-layout">
+        <!-- ── Top Header Telemetry Bar ──────────────────────────────────────── -->
+        <header class="topbar">
+            <div class="brand-group">
+                <div class="brand-logo">🏛️</div>
+                <div class="brand-text">
+                    <div class="brand-title">FinRL-X-MT5 <span class="version-tag">PRO</span></div>
+                    <div class="brand-subtitle">The K-Dense Council Terminal</div>
+                </div>
+            </div>
+
+            <div class="telemetry-pill">
+                <span class="live-dot" id="liveDot"></span>
+                <span class="broker-info" id="brokerServer">Connecting to MT5...</span>
+                <span class="badge-account" id="accountLogin">#---</span>
+            </div>
+
+            <div class="symbol-control">
+                <label for="symbolSelect">ASSET:</label>
+                <select id="symbolSelect">
+                    <option value="NAS100.x" selected>NAS100.x (US Tech 100)</option>
+                    <option value="WTI.x">WTI.x (Crude Oil)</option>
+                    <option value="XAGUSD.x">XAGUSD.x (Silver)</option>
+                    <option value="GER40.x">GER40.x (Germany 40)</option>
+                    <option value="JAP225.x">JAP225.x (Nikkei 225)</option>
+                    <option value="UK100.x">UK100.x (FTSE 100)</option>
+                    <option value="AUS200.x">AUS200.x (ASX 200)</option>
+                    <option value="META.x">META.x (Meta Platforms)</option>
+                    <option value="NVDA.x">NVDA.x (NVIDIA)</option>
+                    <option value="AMZN.x">AMZN.x (Amazon)</option>
+                    <option value="MSFT.x">MSFT.x (Microsoft)</option>
+                    <option value="AAPL.x">AAPL.x (Apple)</option>
+                    <option value="TSLA.x">TSLA.x (Tesla)</option>
+                    <option value="PLTR.x">PLTR.x (Palantir)</option>
+                </select>
+                <div class="live-quote">
+                    <span class="quote-bid" id="quoteBid">0.00</span> / <span class="quote-ask" id="quoteAsk">0.00</span>
+                    <span class="quote-spread" id="quoteSpread">Spr: --</span>
+                </div>
+            </div>
+
+            <div class="account-telemetry">
+                <div class="metric-item">
+                    <span class="metric-label">EQUITY</span>
+                    <span class="metric-value" id="accountEquity">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">BALANCE</span>
+                    <span class="metric-value font-mono" id="accountBalance">$0.00</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-label">FLOATING PNL</span>
+                    <span class="metric-value font-mono" id="accountProfit">$0.00</span>
+                </div>
+                <div class="profile-badge">
+                    <span class="shield-icon">🛡️</span>
+                    <span class="profile-name">PROP FIRM ULTRA-SAFE</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Main Workspace Grid ───────────────────────────────────────────── -->
+        <main class="main-grid">
+            <!-- Left Panel: Chart & Guardian Meters -->
+            <section class="chart-section">
+                <div class="panel-card chart-card">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <span class="panel-title" id="chartSymbolTitle">NAS100.x</span>
+                            <span class="badge-tf">M5 CANDLES</span>
+                            <span class="badge-live-feed">60 FPS TICK FEED</span>
+                        </div>
+                        <div class="chart-readout" id="chartReadout">
+                            O: <span id="roOpen">-</span> H: <span id="roHigh">-</span> L: <span id="roLow">-</span> C: <span id="roClose">-</span> V: <span id="roVol">-</span>
+                        </div>
+                        <button class="btn-refresh" id="btnRefreshChart">↻ REFRESH</button>
+                    </div>
+                    <div class="chart-container" id="chartContainer"></div>
+                </div>
+
+                <!-- Lower Left: Prop Firm Guardian Gauges & Open Positions -->
+                <div class="lower-left-grid">
+                    <!-- Prop Firm Risk Meters -->
+                    <div class="panel-card guardian-card">
+                        <div class="panel-header">
+                            <span class="panel-title">🛡️ Prop Firm Guardian Gauges</span>
+                            <span class="sub-label font-mono">GOATFUNDED-SERVER3 PRESET</span>
+                        </div>
+                        <div class="gauges-container">
+                            <!-- Gauge 1: Daily Drawdown -->
+                            <div class="gauge-box">
+                                <div class="gauge-ring-wrapper">
+                                    <svg class="gauge-svg" viewBox="0 0 100 100">
+                                        <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                                        <circle class="gauge-fill" id="gaugeDailyFill" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264"></circle>
+                                    </svg>
+                                    <div class="gauge-center-text">
+                                        <span class="gauge-val" id="gaugeDailyVal">0.0%</span>
+                                        <span class="gauge-sub">MAX 2.5%</span>
+                                    </div>
+                                </div>
+                                <div class="gauge-title">DAILY DRAWDOWN</div>
+                                <div class="gauge-status text-emerald" id="gaugeDailyStatus">SAFE (0.00 / $250.00)</div>
+                            </div>
+
+                            <!-- Gauge 2: Peak-to-Trough Max Drawdown -->
+                            <div class="gauge-box">
+                                <div class="gauge-ring-wrapper">
+                                    <svg class="gauge-svg" viewBox="0 0 100 100">
+                                        <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                                        <circle class="gauge-fill gauge-fill-amber" id="gaugeTotalFill" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264"></circle>
+                                    </svg>
+                                    <div class="gauge-center-text">
+                                        <span class="gauge-val" id="gaugeTotalVal">0.0%</span>
+                                        <span class="gauge-sub">MAX 4.0%</span>
+                                    </div>
+                                </div>
+                                <div class="gauge-title">TOTAL DRAWDOWN</div>
+                                <div class="gauge-status text-emerald" id="gaugeTotalStatus">SAFE (0.00 / $400.00)</div>
+                            </div>
+
+                            <!-- Gauge 3: Phase 1 Target Progress -->
+                            <div class="gauge-box">
+                                <div class="gauge-ring-wrapper">
+                                    <svg class="gauge-svg" viewBox="0 0 100 100">
+                                        <circle class="gauge-bg" cx="50" cy="50" r="42"></circle>
+                                        <circle class="gauge-fill gauge-fill-cyan" id="gaugeTargetFill" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264"></circle>
+                                    </svg>
+                                    <div class="gauge-center-text">
+                                        <span class="gauge-val font-mono" id="gaugeTargetVal">0.0%</span>
+                                        <span class="gauge-sub">TARGET 8%</span>
+                                    </div>
+                                </div>
+                                <div class="gauge-title">PHASE 1 PROGRESS</div>
+                                <div class="gauge-status text-cyan" id="gaugeTargetStatus">$0.00 / $800.00</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Open Positions & Activity -->
+                    <div class="panel-card positions-card">
+                        <div class="panel-header">
+                            <span class="panel-title">📋 Active Market Positions</span>
+                            <span class="badge-count" id="openPosCount">0 OPEN</span>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="data-table" id="positionsTable">
+                                <thead>
+                                    <tr>
+                                        <th>TICKET</th>
+                                        <th>SYMBOL</th>
+                                        <th>TYPE</th>
+                                        <th>LOTS</th>
+                                        <th>ENTRY</th>
+                                        <th>CURRENT</th>
+                                        <th>SL</th>
+                                        <th>TP</th>
+                                        <th>PNL ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="positionsTbody">
+                                    <tr>
+                                        <td colspan="9" class="empty-state">No open positions. Council waiting for next high-conviction setup.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Council Deliberation Chamber & Chain of Thought -->
+            <section class="council-section">
+                <!-- Consensus Overview Card -->
+                <div class="panel-card consensus-card">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <span class="panel-title">🏛️ The Council Deliberation Chamber</span>
+                            <span class="sub-label">MIXTURE-OF-EXPERTS (MoE)</span>
+                        </div>
+                        <button class="btn-deliberate" id="btnDeliberate">⚡ DELIBERATE NOW</button>
+                    </div>
+
+                    <div class="consensus-box">
+                        <div class="verdict-banner" id="verdictBanner">
+                            <span class="verdict-icon" id="verdictIcon">🛡️</span>
+                            <div class="verdict-content">
+                                <div class="verdict-title" id="verdictTitle">WITHHELD (CAPITAL PRESERVATION)</div>
+                                <div class="verdict-desc" id="verdictDesc">Evaluating market state against NSGA-III Pareto constraints...</div>
+                            </div>
+                        </div>
+
+                        <div class="meter-group">
+                            <div class="meter-label">
+                                <span>CONSENSUS SIGNAL (∑ wᵢ Sᵢ)</span>
+                                <span class="font-mono font-bold" id="consensusSignalVal">0.000</span>
+                            </div>
+                            <div class="signal-thermometer">
+                                <div class="thermometer-mid"></div>
+                                <div class="thermometer-bar" id="consensusSignalBar"></div>
+                            </div>
+                            <div class="meter-scale">
+                                <span>-1.0 SHORT</span>
+                                <span>0.0 FLAT</span>
+                                <span>+1.0 LONG</span>
+                            </div>
+                        </div>
+
+                        <div class="metrics-pill-row">
+                            <div class="mini-pill">
+                                <span class="pill-title">REGIME</span>
+                                <span class="pill-value font-bold" id="cotRegime">--</span>
+                            </div>
+                            <div class="mini-pill">
+                                <span class="pill-title">CONFIDENCE</span>
+                                <span class="pill-value font-mono font-bold" id="cotConfidence">--%</span>
+                            </div>
+                            <div class="mini-pill">
+                                <span class="pill-title">EXPECTED RR</span>
+                                <span class="pill-value font-mono font-bold" id="cotRR">--</span>
+                            </div>
+                            <div class="mini-pill">
+                                <span class="pill-title">KELLY ALLOC</span>
+                                <span class="pill-value font-mono font-bold" id="cotKelly">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5 Specialists Breakdown -->
+                <div class="panel-card specialists-card">
+                    <div class="panel-header">
+                        <span class="panel-title">🧠 5 Specialist Opinions</span>
+                        <span class="sub-label font-mono">PARETO OPTIMIZED</span>
+                    </div>
+
+                    <div class="specialists-list" id="specialistsList">
+                        <!-- Specialist cards dynamically rendered here -->
+                        <div class="loading-state">Loading Council specialists...</div>
+                    </div>
+                </div>
+
+                <!-- Chain of Thought (CoT) Terminal -->
+                <div class="panel-card cot-card">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <span class="panel-title">📜 Chain-of-Thought (CoT) Live Stream</span>
+                            <span class="badge-live-feed">STEP-BY-STEP REASONING</span>
+                        </div>
+                        <span class="terminal-dot"></span>
+                    </div>
+                    <div class="cot-terminal" id="cotTerminal">
+                        <div class="cot-line log-system">[00:00:00] Initializing Council reasoning kernel...</div>
+                        <div class="cot-line log-system">[00:00:01] Attaching to MetaTrader 5 active session...</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Application Script -->
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -296,6 +296,16 @@ def cmd_walk_forward(args):
     logger.info("\n" + report)
 
 
+def cmd_dashboard(args):
+    """Launch the FinRL-X-MT5 interactive localhost dashboard."""
+    import uvicorn
+    from src.dashboard.app import app
+    port = getattr(args, "port", 8000)
+    host = getattr(args, "host", "127.0.0.1")
+    logger.info(f"🏛️ Starting FinRL-X-MT5 Council Terminal on http://{host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
 # ─── CLI Parser ───────────────────────────────────────────────────────────────
 
 def main():
@@ -339,6 +349,11 @@ def main():
     p_wf.add_argument("--train-bars", type=int, default=12000)
     p_wf.add_argument("--test-bars", type=int, default=3000)
 
+    # dashboard
+    p_dash = sub.add_parser("dashboard", help="Launch interactive localhost terminal dashboard")
+    p_dash.add_argument("--port", type=int, default=8000, help="Port to run dashboard on (default: 8000)")
+    p_dash.add_argument("--host", default="127.0.0.1", help="Host address (default: 127.0.0.1)")
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -351,6 +366,8 @@ def main():
         cmd_export_signals(args)
     elif args.command == "walk-forward":
         cmd_walk_forward(args)
+    elif args.command == "dashboard":
+        cmd_dashboard(args)
 
 
 if __name__ == "__main__":
