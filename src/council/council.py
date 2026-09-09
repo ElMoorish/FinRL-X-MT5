@@ -266,7 +266,11 @@ class Council:
         e4_out  = self.expert_analyst.get_council_signal(features, symbol)
 
         # ── Expert 5: PyMC Actuary ────────────────────────────────────────────
-        direction_hint = +1 if e1_out["signal"] > 0 else -1
+        # Derive tentative direction from weighted consensus of E1..E4
+        pre_weights = self.gate.optimal_weights[:4]
+        pre_signals = np.array([e1_out["signal"], e2_out["signal"], e3_out["signal"], e4_out["signal"]], dtype=np.float32)
+        pre_score   = float(np.dot(pre_weights, pre_signals))
+        direction_hint = +1 if pre_score >= 0 else -1
         e5_out  = self.expert_actuary.get_council_signal(
             features, prophet_meta, current_price, direction_hint, symbol
         )
@@ -301,13 +305,29 @@ class Council:
         # Position size = |signal| × regime_modifier × confidence
         position_size = abs(final_signal) * modifier * council_confidence
 
+        # Re-orient TP and SL to guarantee alignment with final blended direction
+        tp_price = e5_out.get("tp_price")
+        sl_price = e5_out.get("sl_price")
+        if direction > 0 and tp_price is not None and sl_price is not None:
+            if tp_price < current_price or sl_price > current_price or tp_price < sl_price:
+                tp_dist = abs(tp_price - current_price)
+                sl_dist = abs(sl_price - current_price)
+                tp_price = current_price + max(tp_dist, sl_dist)
+                sl_price = current_price - min(tp_dist, sl_dist)
+        elif direction < 0 and tp_price is not None and sl_price is not None:
+            if tp_price > current_price or sl_price < current_price or tp_price > sl_price:
+                tp_dist = abs(tp_price - current_price)
+                sl_dist = abs(sl_price - current_price)
+                tp_price = current_price - max(tp_dist, sl_dist)
+                sl_price = current_price + min(tp_dist, sl_dist)
+
         decision = TradingDecision(
             symbol            = symbol,
             consensus_signal  = float(final_signal),
             direction         = direction,
             position_size     = min(1.0, position_size),
-            tp_price          = e5_out.get("tp_price"),
-            sl_price          = e5_out.get("sl_price"),
+            tp_price          = tp_price,
+            sl_price          = sl_price,
             expected_rr       = e5_out.get("expected_rr", 0.0),
             regime            = regime,
             regime_modifier   = modifier,

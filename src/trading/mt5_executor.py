@@ -84,17 +84,21 @@ class MT5Executor:
         result = mt5.order_send(request)
 
         if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            retcode_val = result.retcode if result else "None"
+            comment_val = result.comment if result else ""
             logger.error(
                 f"❌ Order failed for {symbol}: "
-                f"retcode={result.retcode if result else 'None'} | "
+                f"retcode={retcode_val} ({comment_val}) | "
                 f"{mt5.last_error()}"
             )
             return None
 
+        actual_sl = request.get("sl", decision.sl_price)
+        actual_tp = request.get("tp", decision.tp_price)
         logger.info(
             f"✅ Order executed: {symbol} | "
             f"{'BUY' if direction > 0 else 'SELL'} {lots} lots @ {price:.5f} | "
-            f"SL={decision.sl_price:.5f} | TP={decision.tp_price:.5f} | "
+            f"SL={actual_sl:.5f} | TP={actual_tp:.5f} | "
             f"Ticket={result.order}"
         )
 
@@ -104,8 +108,8 @@ class MT5Executor:
             "direction": direction,
             "lots":      lots,
             "price":     price,
-            "sl":        decision.sl_price,
-            "tp":        decision.tp_price,
+            "sl":        actual_sl,
+            "tp":        actual_tp,
             "retcode":   result.retcode,
         }
 
@@ -225,23 +229,63 @@ class MT5Executor:
         comment: str = "",
     ) -> dict:
         info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+
+        # Detect broker-supported filling mode dynamically
+        filling_mode = mt5.ORDER_FILLING_IOC
+        if info and hasattr(info, "filling_mode"):
+            if (info.filling_mode & 2) != 0:
+                filling_mode = mt5.ORDER_FILLING_IOC
+            elif (info.filling_mode & 1) != 0:
+                filling_mode = mt5.ORDER_FILLING_FOK
+            else:
+                filling_mode = mt5.ORDER_FILLING_RETURN
 
         request = {
-            "action":   mt5.TRADE_ACTION_DEAL,
-            "symbol":   symbol,
-            "volume":   lots,
-            "type":     mt5.ORDER_TYPE_BUY if direction > 0 else mt5.ORDER_TYPE_SELL,
-            "price":    price,
-            "deviation": 20,       # max price deviation in points
-            "magic":    self.cfg.magic_number,
-            "comment":  comment[:63],  # MT5 max comment length
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
+            "action":       mt5.TRADE_ACTION_DEAL,
+            "symbol":       symbol,
+            "volume":       lots,
+            "type":         mt5.ORDER_TYPE_BUY if direction > 0 else mt5.ORDER_TYPE_SELL,
+            "price":        price,
+            "deviation":    20,       # max price deviation in points
+            "magic":        self.cfg.magic_number,
+            "comment":      comment[:63],  # MT5 max comment length
+            "type_time":    mt5.ORDER_TIME_GTC,
+            "type_filling": filling_mode,
         }
 
-        if sl and sl > 0:
-            request["sl"] = round(sl, info.digits if info else 5)
-        if tp and tp > 0:
-            request["tp"] = round(tp, info.digits if info else 5)
+        # Dynamically validate and sanitize stops against trade_stops_level and trade direction
+        if info and tick:
+            min_stop_pts = max(info.trade_stops_level, 20) * info.point
+            tick_size = info.trade_tick_size if info.trade_tick_size > 0 else info.point
+
+            if direction > 0:  # BUY: SL below Bid, TP above Bid
+                if sl and sl > 0:
+                    sl_dist = abs(sl - price)
+                    sanitized_sl = min(tick.bid - max(sl_dist, min_stop_pts), tick.bid - min_stop_pts)
+                    sanitized_sl = round(round(sanitized_sl / tick_size) * tick_size, info.digits)
+                    request["sl"] = sanitized_sl
+                if tp and tp > 0:
+                    tp_dist = abs(tp - price)
+                    sanitized_tp = max(tick.bid + max(tp_dist, min_stop_pts * 1.5), tick.bid + min_stop_pts)
+                    sanitized_tp = round(round(sanitized_tp / tick_size) * tick_size, info.digits)
+                    request["tp"] = sanitized_tp
+
+            elif direction < 0:  # SELL: SL above Ask, TP below Ask
+                if sl and sl > 0:
+                    sl_dist = abs(sl - price)
+                    sanitized_sl = max(tick.ask + max(sl_dist, min_stop_pts), tick.ask + min_stop_pts)
+                    sanitized_sl = round(round(sanitized_sl / tick_size) * tick_size, info.digits)
+                    request["sl"] = sanitized_sl
+                if tp and tp > 0:
+                    tp_dist = abs(price - tp)
+                    sanitized_tp = min(tick.ask - max(tp_dist, min_stop_pts * 1.5), tick.ask - min_stop_pts)
+                    sanitized_tp = round(round(sanitized_tp / tick_size) * tick_size, info.digits)
+                    request["tp"] = sanitized_tp
+        else:
+            if sl and sl > 0:
+                request["sl"] = round(sl, info.digits if info else 5)
+            if tp and tp > 0:
+                request["tp"] = round(tp, info.digits if info else 5)
 
         return request
