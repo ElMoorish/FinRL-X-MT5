@@ -29,12 +29,14 @@ class MT5Executor:
       ✅ No duplicate position in same direction
     """
 
-    def __init__(self, lot_sizer=None, risk_manager=None):
+    def __init__(self, lot_sizer=None, risk_manager=None, notifier=None):
         from src.trading.mt5_lot_sizer import MT5LotSizer
         from src.trading.risk_manager import RiskManager
+        from src.trading.trade_notifier import TradeNotifier
         self.cfg        = settings.mt5
         self._lot_sizer = lot_sizer or MT5LotSizer()
         self._risk_mgr  = risk_manager or RiskManager()
+        self._notifier  = notifier or TradeNotifier()
 
     # ─── Main Execute ────────────────────────────────────────────────────────
 
@@ -100,6 +102,18 @@ class MT5Executor:
             f"{'BUY' if direction > 0 else 'SELL'} {lots} lots @ {price:.5f} | "
             f"SL={actual_sl:.5f} | TP={actual_tp:.5f} | "
             f"Ticket={result.order}"
+        )
+
+        # Dispatch real-time external alerts (Telegram / Discord)
+        self._notifier.notify_trade_executed(
+            symbol=symbol,
+            direction=direction,
+            lots=lots,
+            price=price,
+            sl=actual_sl,
+            tp=actual_tp,
+            ticket=result.order,
+            decision=decision,
         )
 
         return {
@@ -186,6 +200,11 @@ class MT5Executor:
                 result = mt5.order_send(request)
                 if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                     logger.info(f"🔄 Closed opposite position #{pos.ticket} on {symbol}")
+                    self._notifier.notify_position_closed(
+                        symbol=symbol,
+                        ticket=pos.ticket,
+                        reason=f"Council flipped to {'BUY' if new_direction > 0 else 'SELL'}"
+                    )
 
     def _compute_lots(
         self,

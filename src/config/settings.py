@@ -202,6 +202,17 @@ class BacktestSettings(BaseSettings):
     target_profit_factor: float = Field(2.0)
 
 
+class NotificationSettings(BaseSettings):
+    """External Webhook and Bot Notification Settings (Telegram & Discord)."""
+
+    enable_notifications: bool = Field(True, description="Master switch for external notifications")
+    telegram_bot_token: str = Field("", description="Telegram Bot Token (e.g. 123456:ABC-DEF...)")
+    telegram_chat_id: str = Field("", description="Telegram Chat or Channel ID (e.g. -100123456789)")
+    discord_webhook_url: str = Field("", description="Discord Webhook URL for rich embed trade alerts")
+    notify_on_trade: bool = Field(True, description="Dispatch notification immediately upon order execution")
+    notify_on_close: bool = Field(True, description="Dispatch notification when opposite position is closed")
+
+
 class Settings(BaseSettings):
     """Unified top-level settings."""
 
@@ -216,6 +227,7 @@ class Settings(BaseSettings):
     data: DataSettings = Field(default_factory=DataSettings)
     council: CouncilSettings = Field(default_factory=CouncilSettings)
     backtest: BacktestSettings = Field(default_factory=BacktestSettings)
+    notifications: NotificationSettings = Field(default_factory=NotificationSettings)
 
     # Logging
     log_level: str = Field("INFO")
