@@ -12,7 +12,7 @@ $WorkingDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $WorkingDir
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "FinRL-X-MT5: Ultra-Safe Prop Firm Live Trader" -ForegroundColor Cyan
-Write-Host "Symbol: NAS100.x | Mode: Ultra-Safe (0.5% Risk, 2.5% Daily Stop)" -ForegroundColor Yellow
+Write-Host "Symbol: NAS100.x | Mode: Ultra-Safe (0.25% Risk, 2.5% Daily Stop)" -ForegroundColor Yellow
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 while ($true) {
