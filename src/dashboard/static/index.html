@@ -71,6 +71,10 @@
                     <span class="shield-icon">🛡️</span>
                     <span class="profile-name">PROP FIRM ULTRA-SAFE</span>
                 </div>
+                <button class="btn-customize" id="btnCustomizeLayout" title="Customize Terminal Layout & Presets">
+                    <span>⚙️</span>
+                    <span>LAYOUT</span>
+                </button>
                 <button class="btn-theme-toggle" id="themeToggle" title="Toggle Light/Dark Theme">
                     <span class="theme-icon" id="themeIcon">☀️</span>
                     <span class="theme-label" id="themeLabel">LIGHT</span>
@@ -83,31 +87,56 @@
         </header>
 
         <!-- ── Main Workspace Grid ───────────────────────────────────────────── -->
-        <main class="main-grid">
+        <main class="main-grid" id="mainGrid">
             <!-- Left Panel: Chart & Guardian Meters -->
-            <section class="chart-section">
-                <div class="panel-card chart-card">
+            <section class="chart-section" id="chartSection">
+                <!-- 1. Live Chart Card -->
+                <div class="panel-card chart-card" id="cardChart" data-card="chart">
                     <div class="panel-header">
                         <div class="panel-title-group">
                             <span class="panel-title" id="chartSymbolTitle">NAS100.x</span>
-                            <span class="badge-tf">M5 CANDLES</span>
-                            <span class="badge-live-feed">60 FPS TICK FEED</span>
+                            <!-- Timeframe Switcher -->
+                            <div class="tf-selector" id="tfSelector">
+                                <button class="btn-tf" data-tf="M1">M1</button>
+                                <button class="btn-tf active" data-tf="M5">M5</button>
+                                <button class="btn-tf" data-tf="M15">M15</button>
+                                <button class="btn-tf" data-tf="H1">H1</button>
+                                <button class="btn-tf" data-tf="D1">D1</button>
+                            </div>
+                            <!-- H1 EMA Overlay Toggle -->
+                            <button class="btn-overlay-toggle active" id="btnToggleH1Ema" title="Toggle H1 EMA 50 Macro Trend Governor line">
+                                <span class="overlay-dot"></span> H1 EMA50
+                            </button>
                         </div>
                         <div class="chart-readout" id="chartReadout">
                             O: <span id="roOpen">-</span> H: <span id="roHigh">-</span> L: <span id="roLow">-</span> C: <span id="roClose">-</span> V: <span id="roVol">-</span>
                         </div>
-                        <button class="btn-refresh" id="btnRefreshChart">↻ REFRESH</button>
+                        <div class="chart-controls-group">
+                            <button class="btn-refresh" id="btnRefreshChart">↻ REFRESH</button>
+                            <div class="card-actions">
+                                <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardChart">▾</button>
+                                <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardChart">⛶</button>
+                                <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardChart">✕</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="chart-container" id="chartContainer"></div>
                 </div>
 
-                <!-- Lower Left: Prop Firm Guardian Gauges & Open Positions -->
-                <div class="lower-left-grid">
-                    <!-- Prop Firm Risk Meters -->
-                    <div class="panel-card guardian-card">
+                <!-- Lower Left Grid: Prop Firm Guardian Gauges & Open Positions -->
+                <div class="lower-left-grid" id="lowerLeftGrid">
+                    <!-- 2. Prop Firm Risk Meters -->
+                    <div class="panel-card guardian-card" id="cardGuardian" data-card="guardian">
                         <div class="panel-header">
-                            <span class="panel-title">🛡️ Prop Firm Guardian Gauges</span>
-                            <span class="sub-label font-mono">GOATFUNDED-SERVER3 PRESET</span>
+                            <div class="panel-title-group">
+                                <span class="panel-title">🛡️ Prop Firm Guardian Gauges</span>
+                                <span class="sub-label font-mono">GOATFUNDED-SERVER3 PRESET</span>
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardGuardian">▾</button>
+                                <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardGuardian">⛶</button>
+                                <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardGuardian">✕</button>
+                            </div>
                         </div>
                         <div class="gauges-container">
                             <!-- Gauge 1: Daily Drawdown -->
@@ -160,13 +189,25 @@
                         </div>
                     </div>
 
-                    <!-- Open Positions & Activity -->
-                    <div class="panel-card positions-card">
+                    <!-- 3. Open Positions & Closed Deals Activity -->
+                    <div class="panel-card positions-card" id="cardPositions" data-card="positions">
                         <div class="panel-header">
-                            <span class="panel-title">📋 Active Market Positions</span>
-                            <span class="badge-count" id="openPosCount">0 OPEN</span>
+                            <div class="pos-tabs-group">
+                                <button class="tab-btn active" id="tabOpenPositions">📋 Active Positions (<span id="openPosCount">0</span>)</button>
+                                <button class="tab-btn" id="tabClosedDeals">📜 Closed Deals History</button>
+                            </div>
+                            <div class="session-badge font-mono" id="sessionStatsBadge">
+                                Today: <span id="sessPnl" class="text-emerald">+$0.00</span> | WR: <span id="sessWr">0.0%</span> (<span id="sessTrades">0</span> tr)
+                            </div>
+                            <div class="card-actions">
+                                <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardPositions">▾</button>
+                                <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardPositions">⛶</button>
+                                <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardPositions">✕</button>
+                            </div>
                         </div>
-                        <div class="table-wrapper">
+
+                        <!-- View A: Active Positions Table -->
+                        <div class="table-wrapper" id="openPositionsView">
                             <table class="data-table" id="positionsTable">
                                 <thead>
                                     <tr>
@@ -188,20 +229,50 @@
                                 </tbody>
                             </table>
                         </div>
+
+                        <!-- View B: Closed Deals Table -->
+                        <div class="table-wrapper" id="closedDealsView" style="display: none;">
+                            <table class="data-table" id="dealsTable">
+                                <thead>
+                                    <tr>
+                                        <th>TICKET</th>
+                                        <th>TIME (UTC)</th>
+                                        <th>SYMBOL</th>
+                                        <th>TYPE</th>
+                                        <th>LOTS</th>
+                                        <th>PRICE</th>
+                                        <th>COMM</th>
+                                        <th>NET PNL ($)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dealsTbody">
+                                    <tr>
+                                        <td colspan="8" class="empty-state">Loading recent deal history...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </section>
 
             <!-- Right Panel: Council Deliberation Chamber & Chain of Thought -->
-            <section class="council-section">
-                <!-- Consensus Overview Card -->
-                <div class="panel-card consensus-card">
+            <section class="council-section" id="councilSection">
+                <!-- 4. Consensus Overview Card -->
+                <div class="panel-card consensus-card" id="cardConsensus" data-card="consensus">
                     <div class="panel-header">
                         <div class="panel-title-group">
                             <span class="panel-title">🏛️ The Council Deliberation Chamber</span>
                             <span class="sub-label">MIXTURE-OF-EXPERTS (MoE)</span>
                         </div>
-                        <button class="btn-deliberate" id="btnDeliberate">⚡ DELIBERATE NOW</button>
+                        <div class="chart-controls-group">
+                            <button class="btn-deliberate" id="btnDeliberate">⚡ DELIBERATE NOW</button>
+                            <div class="card-actions">
+                                <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardConsensus">▾</button>
+                                <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardConsensus">⛶</button>
+                                <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardConsensus">✕</button>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="consensus-box">
@@ -243,6 +314,10 @@
                                 <span class="pill-value font-mono font-bold" id="cotRR">--</span>
                             </div>
                             <div class="mini-pill">
+                                <span class="pill-title">H1 GOVERNOR</span>
+                                <span class="pill-value font-bold" id="cotH1Trend">--</span>
+                            </div>
+                            <div class="mini-pill">
                                 <span class="pill-title">KELLY ALLOC</span>
                                 <span class="pill-value font-mono font-bold" id="cotKelly">--</span>
                             </div>
@@ -250,27 +325,40 @@
                     </div>
                 </div>
 
-                <!-- 5 Specialists Breakdown -->
-                <div class="panel-card specialists-card">
+                <!-- 5. 5 Specialists Breakdown -->
+                <div class="panel-card specialists-card" id="cardSpecialists" data-card="specialists">
                     <div class="panel-header">
-                        <span class="panel-title">🧠 5 Specialist Opinions</span>
-                        <span class="sub-label font-mono">PARETO OPTIMIZED</span>
+                        <div class="panel-title-group">
+                            <span class="panel-title">🧠 5 Specialist Opinions</span>
+                            <span class="sub-label font-mono">PARETO OPTIMIZED</span>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardSpecialists">▾</button>
+                            <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardSpecialists">⛶</button>
+                            <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardSpecialists">✕</button>
+                        </div>
                     </div>
 
                     <div class="specialists-list" id="specialistsList">
-                        <!-- Specialist cards dynamically rendered here -->
                         <div class="loading-state">Loading Council specialists...</div>
                     </div>
                 </div>
 
-                <!-- Chain of Thought (CoT) Terminal -->
-                <div class="panel-card cot-card">
+                <!-- 6. Chain of Thought (CoT) Terminal -->
+                <div class="panel-card cot-card" id="cardCot" data-card="cot">
                     <div class="panel-header">
                         <div class="panel-title-group">
                             <span class="panel-title">📜 Chain-of-Thought (CoT) Live Stream</span>
                             <span class="badge-live-feed">STEP-BY-STEP REASONING</span>
                         </div>
-                        <span class="terminal-dot"></span>
+                        <div class="chart-controls-group">
+                            <span class="terminal-dot"></span>
+                            <div class="card-actions">
+                                <button class="btn-card-action btn-collapse" title="Collapse / Expand" data-target="cardCot">▾</button>
+                                <button class="btn-card-action btn-maximize" title="Maximize / Restore" data-target="cardCot">⛶</button>
+                                <button class="btn-card-action btn-hide" title="Hide Panel" data-target="cardCot">✕</button>
+                            </div>
+                        </div>
                     </div>
                     <div class="cot-terminal" id="cotTerminal">
                         <div class="cot-line log-system">[00:00:00] Initializing Council reasoning kernel...</div>
@@ -279,6 +367,76 @@
                 </div>
             </section>
         </main>
+    </div>
+
+    <!-- ── Slide-Over Layout Customizer Drawer ────────────────────────── -->
+    <div class="drawer-overlay" id="layoutDrawerOverlay" style="display: none;">
+        <div class="layout-drawer" id="layoutDrawer">
+            <div class="drawer-header">
+                <div class="drawer-title-group">
+                    <span class="drawer-icon">⚙️</span>
+                    <span class="drawer-title">Workspace Layout & Presets</span>
+                </div>
+                <button class="btn-close-drawer" id="btnCloseDrawer">&times;</button>
+            </div>
+
+            <!-- Workspace Presets -->
+            <div class="drawer-section">
+                <span class="drawer-section-title">One-Click Presets</span>
+                <div class="preset-grid">
+                    <button class="btn-preset active" data-preset="default">
+                        <span class="btn-preset-name">🏛️ Institutional</span>
+                        <span class="btn-preset-desc">Standard balanced 2-column view</span>
+                    </button>
+                    <button class="btn-preset" data-preset="prop_trader">
+                        <span class="btn-preset-name">🛡️ Prop Trader</span>
+                        <span class="btn-preset-desc">Gauges, open trades & chart focus</span>
+                    </button>
+                    <button class="btn-preset" data-preset="ai_researcher">
+                        <span class="btn-preset-name">🧠 AI Researcher</span>
+                        <span class="btn-preset-desc">Deliberation, specialists & CoT focus</span>
+                    </button>
+                    <button class="btn-preset" data-preset="scalper">
+                        <span class="btn-preset-name">⚡ Scalper</span>
+                        <span class="btn-preset-desc">Full-screen chart & order execution</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Panel Visibility Checkboxes -->
+            <div class="drawer-section">
+                <span class="drawer-section-title">Toggle Active Panels</span>
+                <div class="visibility-list">
+                    <label class="vis-toggle-item">
+                        <span>📈 Candlestick Chart</span>
+                        <input type="checkbox" id="toggle_cardChart" checked data-panel="cardChart">
+                    </label>
+                    <label class="vis-toggle-item">
+                        <span>🛡️ Prop Firm Guardian Gauges</span>
+                        <input type="checkbox" id="toggle_cardGuardian" checked data-panel="cardGuardian">
+                    </label>
+                    <label class="vis-toggle-item">
+                        <span>📋 Active Positions & History</span>
+                        <input type="checkbox" id="toggle_cardPositions" checked data-panel="cardPositions">
+                    </label>
+                    <label class="vis-toggle-item">
+                        <span>🏛️ Council Consensus Chamber</span>
+                        <input type="checkbox" id="toggle_cardConsensus" checked data-panel="cardConsensus">
+                    </label>
+                    <label class="vis-toggle-item">
+                        <span>🧠 5 Specialist Opinions</span>
+                        <input type="checkbox" id="toggle_cardSpecialists" checked data-panel="cardSpecialists">
+                    </label>
+                    <label class="vis-toggle-item">
+                        <span>📜 Chain-of-Thought Terminal</span>
+                        <input type="checkbox" id="toggle_cardCot" checked data-panel="cardCot">
+                    </label>
+                </div>
+                <button class="btn-reset-layout" id="btnResetLayout">↺ Reset to Default Layout</button>
+            </div>
+        </div>
+    </div>
+
     <!-- ── Donation Modal ──────────────────────────────────────────────── -->
     <div class="modal-overlay" id="donateModal" style="display: none;">
         <div class="modal-card">

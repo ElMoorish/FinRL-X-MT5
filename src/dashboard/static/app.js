@@ -1,23 +1,53 @@
 /**
  * FinRL-X-MT5: Council Terminal Frontend Engine
  * Handles 60fps TradingView canvas charting, live WebSocket streaming,
- * reactive SVG prop firm risk meters, and interactive Chain-of-Thought rendering.
+ * reactive SVG prop firm risk meters, interactive Chain-of-Thought rendering,
+ * modular card controls, slide-over layout customizer, and deals history.
  */
 
 let chartInstance = null;
 let candleSeries = null;
 let volumeSeries = null;
+let h1EmaSeries = null;
 let activeSymbol = "NAS100.x";
+let activeTimeframe = "M5";
+let showH1Ema = true;
+let currentH1EmaVal = 0.0;
 let wsConnection = null;
+let activeTab = "open";
 
 // Circumference of SVG gauge (r=42 -> 2 * PI * 42 ≈ 263.89)
 const GAUGE_CIRCUMFERENCE = 263.89;
+
+// Layout Presets Definition
+const LAYOUT_PRESETS = {
+    default: {
+        visible: ["cardChart", "cardGuardian", "cardPositions", "cardConsensus", "cardSpecialists", "cardCot"],
+        collapsed: []
+    },
+    prop_trader: {
+        visible: ["cardChart", "cardGuardian", "cardPositions", "cardConsensus"],
+        collapsed: []
+    },
+    ai_researcher: {
+        visible: ["cardChart", "cardConsensus", "cardSpecialists", "cardCot"],
+        collapsed: []
+    },
+    scalper: {
+        visible: ["cardChart", "cardPositions", "cardConsensus"],
+        collapsed: []
+    }
+};
 
 document.addEventListener("DOMContentLoaded", () => {
     initChart();
     initTheme();
     initDonationModal();
     initWebSocket();
+    initTimeframeSelector();
+    initPositionsTabs();
+    initCardControls();
+    initLayoutDrawer();
     setupEventListeners();
 
     // Initial Data Hydration
@@ -25,7 +55,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Auto-polling background timers
     setInterval(fetchAccount, 3000);
-    setInterval(fetchPositions, 5000);
+    setInterval(fetchPositions, 4000);
 });
 
 // ─── 1. TradingView Lightweight Chart Initialization ─────────────────────────
@@ -79,6 +109,16 @@ function initChart() {
         scaleMargins: { top: 0.82, bottom: 0 },
     });
 
+    // H1 Macro Trend Governor Line Overlay (EMA 50)
+    h1EmaSeries = chartInstance.addLineSeries({
+        color: "#f59e0b",
+        lineWidth: 2,
+        lineStyle: 2, // Dashed
+        title: "H1 EMA50",
+        priceLineVisible: true,
+        lastValueVisible: true,
+    });
+
     // Crosshair hover readout
     chartInstance.subscribeCrosshairMove((param) => {
         if (!param || !param.time || !param.seriesPrices) return;
@@ -107,7 +147,7 @@ function initChart() {
 // ─── 2. Data Fetchers ────────────────────────────────────────────────────────
 async function refreshAllData() {
     await fetchAccount();
-    await fetchChartBars(activeSymbol);
+    await fetchChartBars(activeSymbol, activeTimeframe);
     await fetchPositions();
     await fetchCouncilDecision(activeSymbol);
 }
@@ -184,10 +224,11 @@ function updateGuardianGauges(pf) {
     document.getElementById("gaugeTargetVal").innerText = `${progPct.toFixed(0)}%`;
 }
 
-async function fetchChartBars(symbol) {
+async function fetchChartBars(symbol, tf = activeTimeframe) {
     try {
+        activeTimeframe = tf;
         document.getElementById("chartSymbolTitle").innerText = symbol;
-        const res = await fetch(`/api/bars?symbol=${symbol}&count=160`);
+        const res = await fetch(`/api/bars?symbol=${symbol}&tf=${tf}&count=160`);
         if (!res.ok) return;
         const data = await res.json();
 
@@ -206,6 +247,19 @@ async function fetchChartBars(symbol) {
                 color: b.close >= b.open ? "rgba(16, 185, 129, 0.35)" : "rgba(244, 63, 94, 0.35)",
             })));
 
+            // Update H1 Macro Trend Governor line overlay
+            if (data.h1_ema > 0 && showH1Ema) {
+                currentH1EmaVal = data.h1_ema;
+                const emaPoints = data.bars.map(b => ({
+                    time: b.time,
+                    value: data.h1_ema,
+                }));
+                h1EmaSeries.setData(emaPoints);
+                h1EmaSeries.applyOptions({ visible: true });
+            } else {
+                h1EmaSeries.applyOptions({ visible: false });
+            }
+
             chartInstance.timeScale().fitContent();
 
             // Set live quote
@@ -220,10 +274,10 @@ async function fetchChartBars(symbol) {
     }
 }
 
-async function fetchCouncilDecision(symbol) {
-    appendCoTLine(`[${new Date().toLocaleTimeString()}] Convening Council specialists for ${symbol}...`, "log-system");
+async function fetchCouncilDecision(symbol, force = false) {
+    appendCoTLine(`[${new Date().toLocaleTimeString()}] ${force ? 'Force refreshing' : 'Synchronizing'} Council deliberation for ${symbol}...`, "log-system");
     try {
-        const res = await fetch(`/api/council/decision?symbol=${symbol}`);
+        const res = await fetch(`/api/council/decision?symbol=${symbol}&force=${force}`);
         if (!res.ok) {
             appendCoTLine(`[${new Date().toLocaleTimeString()}] ⚠️ Could not fetch deliberation for ${symbol}`, "log-withheld");
             return;
@@ -246,7 +300,7 @@ function renderDeliberation(cot) {
     if (cot.is_tradeable) {
         banner.className = "verdict-banner verdict-approved";
         icon.innerText = "✅";
-        title.innerText = `${cot.direction} — TRADE APPROVED`;
+        title.innerText = `${cot.direction} — HIGH-CONVICTION TRADE APPROVED`;
         desc.innerText = cot.verdict;
     } else {
         banner.className = "verdict-banner verdict-withheld";
@@ -277,6 +331,15 @@ function renderDeliberation(cot) {
     document.getElementById("cotConfidence").innerText = `${(cot.confidence * 100).toFixed(1)}%`;
     document.getElementById("cotRR").innerText = cot.expected_rr.toFixed(2);
     document.getElementById("cotKelly").innerText = `${cot.position_size.toFixed(2)}x`;
+    const h1El = document.getElementById("cotH1Trend");
+    if (h1El) {
+        h1El.innerText = cot.h1_trend || "ALIGNED";
+        if (cot.h1_trend && cot.h1_trend.includes("BULLISH")) {
+            h1El.className = "pill-value font-bold text-emerald";
+        } else if (cot.h1_trend && cot.h1_trend.includes("BEARISH")) {
+            h1El.className = "pill-value font-bold text-rose";
+        }
+    }
 
     // 4. Specialist Cards
     const specList = document.getElementById("specialistsList");
@@ -287,7 +350,9 @@ function renderDeliberation(cot) {
         row.className = "specialist-row";
 
         const sigColor = step.signal > 0.05 ? "text-emerald" : step.signal < -0.05 ? "text-rose" : "text-cyan";
-        const weightPct = ((step.weight || 0.2) * 100).toFixed(0);
+        const weightPct = ((step.weight || 0.2) * 100).toFixed(1);
+        const contribStr = step.contribution !== undefined ? 
+            `<span class="badge-contrib font-mono">Contrib: ${step.contribution > 0 ? "+" : ""}${step.contribution.toFixed(3)}</span>` : "";
 
         row.innerHTML = `
             <div class="spec-header">
@@ -295,6 +360,7 @@ function renderDeliberation(cot) {
                 <div class="spec-badges">
                     <span class="badge-sig ${sigColor}">SIG: ${step.signal > 0 ? "+" : ""}${step.signal.toFixed(2)}</span>
                     <span class="badge-weight">W: ${weightPct}%</span>
+                    ${contribStr}
                 </div>
             </div>
             <div class="spec-narrative">${step.narrative}</div>
@@ -339,6 +405,7 @@ async function fetchPositions() {
         if (!res.ok) return;
         const data = await res.json();
 
+        // 1. Open Positions
         const countBadge = document.getElementById("openPosCount");
         const tbody = document.getElementById("positionsTbody");
 
@@ -361,10 +428,42 @@ async function fetchPositions() {
                 </tr>
             `).join("");
         } else {
-            countBadge.innerText = "0 OPEN";
-            countBadge.style.background = "var(--bg-surface-elevated)";
-            countBadge.style.color = "var(--text-muted)";
+            countBadge.innerText = "0";
             tbody.innerHTML = `<tr><td colspan="9" class="empty-state">No open positions. Council waiting for next high-conviction setup.</td></tr>`;
+        }
+
+        // 2. Closed Deals History
+        const dealsTbody = document.getElementById("dealsTbody");
+        if (dealsTbody && data.recent_deals && data.recent_deals.length > 0) {
+            dealsTbody.innerHTML = data.recent_deals.map(d => `
+                <tr>
+                    <td>#${d.ticket}</td>
+                    <td class="font-mono text-muted">${d.time.split(' ')[1] || d.time}</td>
+                    <td class="font-bold">${d.symbol}</td>
+                    <td class="${d.type === 'BUY' ? 'text-emerald' : 'text-rose'} font-bold">${d.type}</td>
+                    <td>${d.volume.toFixed(2)}</td>
+                    <td>${d.price.toFixed(2)}</td>
+                    <td class="text-muted font-mono">$${(d.commission || 0).toFixed(2)}</td>
+                    <td class="${d.profit >= 0 ? 'text-emerald' : 'text-rose'} font-bold">${d.profit >= 0 ? '+' : ''}$${d.profit.toFixed(2)}</td>
+                </tr>
+            `).join("");
+        } else if (dealsTbody) {
+            dealsTbody.innerHTML = `<tr><td colspan="8" class="empty-state">No closed deals in the last 7 days.</td></tr>`;
+        }
+
+        // 3. Session Performance Summary Stats
+        if (data.session_stats) {
+            const ss = data.session_stats;
+            const pnlEl = document.getElementById("sessPnl");
+            const wrEl = document.getElementById("sessWr");
+            const trEl = document.getElementById("sessTrades");
+
+            if (pnlEl) {
+                pnlEl.innerText = `${ss.today_pnl >= 0 ? "+" : ""}$${ss.today_pnl.toFixed(2)}`;
+                pnlEl.className = ss.today_pnl >= 0 ? "text-emerald" : "text-rose";
+            }
+            if (wrEl) wrEl.innerText = `${ss.today_win_rate.toFixed(1)}%`;
+            if (trEl) trEl.innerText = `${ss.today_trades}`;
         }
     } catch (err) {
         console.warn("Positions poll error:", err);
@@ -389,6 +488,9 @@ function initWebSocket() {
                 document.getElementById("quoteBid").innerText = msg.bid.toFixed(2);
                 document.getElementById("quoteAsk").innerText = msg.ask.toFixed(2);
                 document.getElementById("quoteSpread").innerText = `Spr: ${msg.spread.toFixed(1)}`;
+            } else if (msg.type === "COUNCIL_DECISION" && msg.symbol === activeSymbol) {
+                appendCoTLine(`[${new Date().toLocaleTimeString()}] ⚡ Live Council broadcast received (${msg.cot.source || 'LIVE'}).`, "log-check");
+                renderDeliberation(msg.cot);
             }
         };
 
@@ -400,13 +502,256 @@ function initWebSocket() {
     }
 }
 
-// ─── 4. Event Listeners ─────────────────────────────────────────────────────
+// ─── 4. Timeframe Switcher & Chart Controls ───────────────────────────────────
+function initTimeframeSelector() {
+    const tfBtns = document.querySelectorAll(".btn-tf");
+    tfBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            tfBtns.forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            activeTimeframe = btn.dataset.tf;
+            fetchChartBars(activeSymbol, activeTimeframe);
+        });
+    });
+
+    const toggleH1 = document.getElementById("btnToggleH1Ema");
+    if (toggleH1) {
+        toggleH1.addEventListener("click", () => {
+            showH1Ema = !showH1Ema;
+            toggleH1.classList.toggle("active", showH1Ema);
+            if (h1EmaSeries) {
+                h1EmaSeries.applyOptions({ visible: showH1Ema });
+            }
+        });
+    }
+}
+
+// ─── 5. Positions / Closed Deals Tabs ─────────────────────────────────────────
+function initPositionsTabs() {
+    const tabOpen = document.getElementById("tabOpenPositions");
+    const tabDeals = document.getElementById("tabClosedDeals");
+    const viewOpen = document.getElementById("openPositionsView");
+    const viewDeals = document.getElementById("closedDealsView");
+
+    if (tabOpen && tabDeals) {
+        tabOpen.addEventListener("click", () => {
+            activeTab = "open";
+            tabOpen.classList.add("active");
+            tabDeals.classList.remove("active");
+            if (viewOpen) viewOpen.style.display = "block";
+            if (viewDeals) viewDeals.style.display = "none";
+        });
+
+        tabDeals.addEventListener("click", () => {
+            activeTab = "deals";
+            tabDeals.classList.add("active");
+            tabOpen.classList.remove("active");
+            if (viewOpen) viewOpen.style.display = "none";
+            if (viewDeals) viewDeals.style.display = "block";
+        });
+    }
+}
+
+// ─── 6. Modular Card Controls (Collapse, Maximize, Hide) ─────────────────────
+function initCardControls() {
+    document.querySelectorAll(".btn-card-action").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const targetId = btn.dataset.target;
+            const card = document.getElementById(targetId);
+            if (!card) return;
+
+            if (btn.classList.contains("btn-collapse")) {
+                card.classList.toggle("collapsed");
+                btn.innerText = card.classList.contains("collapsed") ? "▴" : "▾";
+                saveLayoutState();
+            } else if (btn.classList.contains("btn-maximize")) {
+                card.classList.toggle("maximized");
+                btn.innerText = card.classList.contains("maximized") ? "🗗" : "⛶";
+                if (targetId === "cardChart" && chartInstance) {
+                    setTimeout(() => {
+                        const container = document.getElementById("chartContainer");
+                        if (container) {
+                            chartInstance.applyOptions({
+                                width: container.clientWidth,
+                                height: container.clientHeight,
+                            });
+                            chartInstance.timeScale().fitContent();
+                        }
+                    }, 60);
+                }
+            } else if (btn.classList.contains("btn-hide")) {
+                card.classList.add("hidden");
+                const toggleInput = document.getElementById(`toggle_${targetId}`);
+                if (toggleInput) toggleInput.checked = false;
+                saveLayoutState();
+            }
+        });
+    });
+}
+
+// ─── 7. Slide-Over Layout Customizer Drawer & Presets ─────────────────────────
+function initLayoutDrawer() {
+    const btnOpen = document.getElementById("btnCustomizeLayout");
+    const drawerOverlay = document.getElementById("layoutDrawerOverlay");
+    const btnClose = document.getElementById("btnCloseDrawer");
+    const btnReset = document.getElementById("btnResetLayout");
+
+    if (btnOpen && drawerOverlay) {
+        btnOpen.addEventListener("click", () => {
+            drawerOverlay.style.display = "flex";
+        });
+    }
+
+    if (btnClose && drawerOverlay) {
+        btnClose.addEventListener("click", () => {
+            drawerOverlay.style.display = "none";
+        });
+    }
+
+    if (drawerOverlay) {
+        drawerOverlay.addEventListener("click", (e) => {
+            if (e.target === drawerOverlay) drawerOverlay.style.display = "none";
+        });
+    }
+
+    // Toggle checkboxes
+    document.querySelectorAll(".vis-toggle-item input[type='checkbox']").forEach(input => {
+        input.addEventListener("change", () => {
+            const panelId = input.dataset.panel;
+            const panel = document.getElementById(panelId);
+            if (panel) {
+                if (input.checked) {
+                    panel.classList.remove("hidden");
+                } else {
+                    panel.classList.add("hidden");
+                }
+                saveLayoutState();
+            }
+        });
+    });
+
+    // Preset buttons
+    document.querySelectorAll(".btn-preset").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const presetKey = btn.dataset.preset;
+            applyPreset(presetKey);
+            document.querySelectorAll(".btn-preset").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+            saveLayoutState(presetKey);
+        });
+    });
+
+    // Reset layout
+    if (btnReset) {
+        btnReset.addEventListener("click", () => {
+            localStorage.removeItem("finrl_layout_v2");
+            applyPreset("default");
+            document.querySelectorAll(".btn-preset").forEach(b => b.classList.remove("active"));
+            const defBtn = document.querySelector(".btn-preset[data-preset='default']");
+            if (defBtn) defBtn.classList.add("active");
+        });
+    }
+
+    // Restore saved layout
+    loadLayoutState();
+}
+
+function applyPreset(presetKey) {
+    const config = LAYOUT_PRESETS[presetKey] || LAYOUT_PRESETS.default;
+    const allPanels = ["cardChart", "cardGuardian", "cardPositions", "cardConsensus", "cardSpecialists", "cardCot"];
+
+    allPanels.forEach(id => {
+        const card = document.getElementById(id);
+        const toggle = document.getElementById(`toggle_${id}`);
+        if (!card) return;
+
+        const isVis = config.visible.includes(id);
+        const isCol = (config.collapsed || []).includes(id);
+
+        card.classList.toggle("hidden", !isVis);
+        card.classList.toggle("collapsed", isCol);
+        if (toggle) toggle.checked = isVis;
+
+        // Reset maximize state
+        card.classList.remove("maximized");
+    });
+
+    if (chartInstance) {
+        setTimeout(() => {
+            const container = document.getElementById("chartContainer");
+            if (container) {
+                chartInstance.applyOptions({
+                    width: container.clientWidth,
+                    height: container.clientHeight,
+                });
+                chartInstance.timeScale().fitContent();
+            }
+        }, 60);
+    }
+}
+
+function saveLayoutState(activePreset = null) {
+    const allPanels = ["cardChart", "cardGuardian", "cardPositions", "cardConsensus", "cardSpecialists", "cardCot"];
+    const visible = [];
+    const collapsed = [];
+
+    allPanels.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            if (!el.classList.contains("hidden")) visible.push(id);
+            if (el.classList.contains("collapsed")) collapsed.push(id);
+        }
+    });
+
+    const stateObj = {
+        preset: activePreset,
+        visible,
+        collapsed
+    };
+
+    localStorage.setItem("finrl_layout_v2", JSON.stringify(stateObj));
+}
+
+function loadLayoutState() {
+    const raw = localStorage.getItem("finrl_layout_v2");
+    if (!raw) return;
+
+    try {
+        const saved = JSON.parse(raw);
+        if (saved.preset && LAYOUT_PRESETS[saved.preset]) {
+            applyPreset(saved.preset);
+            document.querySelectorAll(".btn-preset").forEach(b => {
+                b.classList.toggle("active", b.dataset.preset === saved.preset);
+            });
+            return;
+        }
+
+        const allPanels = ["cardChart", "cardGuardian", "cardPositions", "cardConsensus", "cardSpecialists", "cardCot"];
+        allPanels.forEach(id => {
+            const card = document.getElementById(id);
+            const toggle = document.getElementById(`toggle_${id}`);
+            if (!card) return;
+
+            const isVis = saved.visible ? saved.visible.includes(id) : true;
+            const isCol = saved.collapsed ? saved.collapsed.includes(id) : false;
+
+            card.classList.toggle("hidden", !isVis);
+            card.classList.toggle("collapsed", isCol);
+            if (toggle) toggle.checked = isVis;
+        });
+    } catch (e) {
+        console.warn("Layout restore error:", e);
+    }
+}
+
+// ─── 8. Event Listeners ─────────────────────────────────────────────────────
 function setupEventListeners() {
     const sel = document.getElementById("symbolSelect");
     if (sel) {
         sel.addEventListener("change", (e) => {
             activeSymbol = e.target.value;
-            fetchChartBars(activeSymbol);
+            fetchChartBars(activeSymbol, activeTimeframe);
             fetchCouncilDecision(activeSymbol);
         });
     }
@@ -414,20 +759,20 @@ function setupEventListeners() {
     const btnDelib = document.getElementById("btnDeliberate");
     if (btnDelib) {
         btnDelib.addEventListener("click", () => {
-            fetchCouncilDecision(activeSymbol);
+            fetchCouncilDecision(activeSymbol, true); // Force recalculation with live models
         });
     }
 
     const btnRef = document.getElementById("btnRefreshChart");
     if (btnRef) {
         btnRef.addEventListener("click", () => {
-            fetchChartBars(activeSymbol);
+            fetchChartBars(activeSymbol, activeTimeframe);
             fetchAccount();
         });
     }
 }
 
-// ─── 5. Theme Management (Dark / White Mode) ─────────────────────────────────
+// ─── 9. Theme Management (Dark / White Mode) ─────────────────────────────────
 function initTheme() {
     const savedTheme = localStorage.getItem("finrl_theme") || "dark";
     applyTheme(savedTheme);
@@ -452,7 +797,6 @@ function applyTheme(theme) {
         if (label) label.innerText = "DARK";
         localStorage.setItem("finrl_theme", "light");
 
-        // Update TradingView Chart for Light Mode
         if (chartInstance) {
             chartInstance.applyOptions({
                 layout: {
@@ -477,7 +821,6 @@ function applyTheme(theme) {
         if (label) label.innerText = "LIGHT";
         localStorage.setItem("finrl_theme", "dark");
 
-        // Update TradingView Chart for Dark Mode
         if (chartInstance) {
             chartInstance.applyOptions({
                 layout: {
@@ -499,7 +842,7 @@ function applyTheme(theme) {
     }
 }
 
-// ─── 6. Support & Donation Modal ──────────────────────────────────────────────
+// ─── 10. Support & Donation Modal ─────────────────────────────────────────────
 function initDonationModal() {
     const donateBtn = document.getElementById("donateBtn");
     const modal = document.getElementById("donateModal");
@@ -547,6 +890,7 @@ function initDonationModal() {
                     copyText.innerText = "COPIED! ✅";
                     setTimeout(() => {
                         copyText.innerText = "COPY";
+                        copyBtn.style.background = "";
                     }, 2000);
                 }
             });

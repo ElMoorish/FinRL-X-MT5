@@ -56,11 +56,11 @@ class TerminalState:
 state = TerminalState()
 
 
-def get_active_council(symbol: str) -> Optional[Council]:
-    if symbol not in state.councils:
+def get_active_council(symbol: str, reload: bool = False) -> Optional[Council]:
+    if reload or symbol not in state.councils:
         try:
             state.councils[symbol] = Council().load(symbol)
-            logger.info(f"Loaded Council for {symbol} into dashboard cache")
+            logger.info(f"Loaded Council for {symbol} into dashboard cache (reload={reload})")
         except Exception as e:
             logger.error(f"Failed to load Council for {symbol}: {e}")
             return None
@@ -126,16 +126,27 @@ async def get_account_state():
     }
 
 
+TIMEFRAME_MAP = {
+    "M1": mt5.TIMEFRAME_M1,
+    "M5": mt5.TIMEFRAME_M5,
+    "M15": mt5.TIMEFRAME_M15,
+    "H1": mt5.TIMEFRAME_H1,
+    "D1": mt5.TIMEFRAME_D1,
+}
+
+
 @app.get("/api/bars")
 async def get_chart_bars(
     symbol: str = Query("NAS100.x"),
-    count: int = Query(150, ge=30, le=500),
+    tf: str = Query("M5"),
+    count: int = Query(160, ge=30, le=500),
 ):
-    """Retrieve M5 historical bars formatted for TradingView Lightweight-Charts."""
+    """Retrieve historical bars and H1 Macro Trend Governor line."""
     if not mt5.initialize():
         return JSONResponse({"error": "MT5 not connected"}, status_code=503)
 
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, count)
+    mt5_tf = TIMEFRAME_MAP.get(tf.upper(), mt5.TIMEFRAME_M5)
+    rates = mt5.copy_rates_from_pos(symbol, mt5_tf, 0, count)
     if rates is None or len(rates) == 0:
         return JSONResponse({"error": f"No rates found for {symbol}"}, status_code=404)
 
@@ -150,6 +161,17 @@ async def get_chart_bars(
             "volume": int(r["tick_volume"]),
         })
 
+    # Compute H1 Trend Governor (EMA 50 on H1)
+    current_h1_ema = 0.0
+    try:
+        h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 70)
+        if h1_rates is not None and len(h1_rates) >= 50:
+            h1_df = pd.DataFrame(h1_rates)
+            h1_df["ema50"] = h1_df["close"].ewm(span=50, adjust=False).mean()
+            current_h1_ema = float(h1_df["ema50"].iloc[-1])
+    except Exception as e:
+        logger.debug(f"H1 EMA calculation error: {e}")
+
     tick = mt5.symbol_info_tick(symbol)
     quote = {
         "bid": tick.bid if tick else 0.0,
@@ -157,16 +179,42 @@ async def get_chart_bars(
         "spread": (tick.ask - tick.bid) if tick else 0.0,
     }
 
-    return {"symbol": symbol, "bars": bars, "quote": quote}
+    return {
+        "symbol": symbol,
+        "timeframe": tf.upper(),
+        "bars": bars,
+        "quote": quote,
+        "h1_ema": round(current_h1_ema, 2),
+    }
 
 
 @app.get("/api/council/decision")
-async def get_council_decision(symbol: str = Query("NAS100.x")):
-    """Run real-time Council deliberation and generate human-readable Chain of Thought."""
+async def get_council_decision(
+    symbol: str = Query("NAS100.x"),
+    force: bool = Query(False)
+):
+    """Retrieve synchronized live Council decision or run real-time deliberation."""
+    state_file = Path("data") / f"live_council_state_{symbol}.json"
+
+    # If not forcing recalculation and live trader state exists, serve synchronized live state
+    if not force and state_file.exists():
+        try:
+            with open(state_file, "r", encoding="utf-8") as f:
+                cached_cot = json.load(f)
+            ts = cached_cot.get("timestamp_utc")
+            if ts:
+                age_sec = (datetime.now(timezone.utc) - datetime.fromisoformat(ts)).total_seconds()
+                if age_sec < 900:  # Valid within last 15 minutes (3 M5 bars)
+                    state.active_symbol = symbol
+                    state.latest_cot = cached_cot
+                    return cached_cot
+        except Exception as e:
+            logger.warning(f"Could not read cached live council state: {e}")
+
     if not mt5.initialize():
         return JSONResponse({"error": "MT5 not connected"}, status_code=503)
 
-    council = get_active_council(symbol)
+    council = get_active_council(symbol, reload=force)
     if not council:
         return JSONResponse({"error": f"Council not found for {symbol}"}, status_code=404)
 
@@ -182,6 +230,16 @@ async def get_council_decision(symbol: str = Query("NAS100.x")):
 
     decision = council.decide(features, symbol)
     cot = ChainOfThoughtGenerator.generate(decision)
+    cot["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+    cot["source"] = "DASHBOARD_ON_DEMAND"
+
+    # Save to state file so all clients stay in sync
+    try:
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(state_file, "w", encoding="utf-8") as f:
+            json.dump(cot, f, indent=2)
+    except Exception:
+        pass
 
     state.latest_decision = decision
     state.latest_cot = cot
@@ -192,7 +250,7 @@ async def get_council_decision(symbol: str = Query("NAS100.x")):
 
 @app.get("/api/positions")
 async def get_positions():
-    """Retrieve open positions and recent closed deals."""
+    """Retrieve open positions, recent closed deals, and daily session performance."""
     if not mt5.initialize():
         return JSONResponse({"error": "MT5 not connected"}, status_code=503)
 
@@ -213,13 +271,20 @@ async def get_positions():
             "comment": p.comment,
         })
 
-    # Recent deals
+    # Recent deals & session statistics
     now = datetime.now(timezone.utc)
-    deals_raw = mt5.history_deals_get(now - timedelta(days=2), now) or []
+    today_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+    deals_raw = mt5.history_deals_get(now - timedelta(days=7), now) or []
     deals = []
-    for d in deals_raw[-15:]:
+    today_pnl = 0.0
+    today_wins = 0
+    today_losses = 0
+    today_deals_count = 0
+
+    for d in deals_raw:
         if d.entry == mt5.DEAL_ENTRY_OUT:
-            deals.append({
+            d_time = datetime.fromtimestamp(d.time, tz=timezone.utc)
+            deal_data = {
                 "ticket": d.ticket,
                 "order": d.order,
                 "symbol": d.symbol,
@@ -228,10 +293,33 @@ async def get_positions():
                 "price": d.price,
                 "profit": round(d.profit, 2),
                 "commission": round(d.commission, 2),
-                "time": datetime.fromtimestamp(d.time).strftime("%Y-%m-%d %H:%M:%S"),
-            })
+                "time": d_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            deals.append(deal_data)
 
-    return {"open_positions": positions, "recent_deals": list(reversed(deals))}
+            if d_time >= today_start:
+                today_pnl += d.profit
+                today_deals_count += 1
+                if d.profit > 0:
+                    today_wins += 1
+                elif d.profit < 0:
+                    today_losses += 1
+
+    today_win_rate = (today_wins / (today_wins + today_losses) * 100.0) if (today_wins + today_losses) > 0 else 0.0
+
+    session_stats = {
+        "today_pnl": round(today_pnl, 2),
+        "today_trades": today_deals_count,
+        "today_wins": today_wins,
+        "today_losses": today_losses,
+        "today_win_rate": round(today_win_rate, 1),
+    }
+
+    return {
+        "open_positions": positions,
+        "recent_deals": list(reversed(deals))[:30],
+        "session_stats": session_stats,
+    }
 
 
 # ─── WebSocket Live Stream ───────────────────────────────────────────────────
@@ -261,9 +349,10 @@ manager = ConnectionManager()
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    symbol = state.active_symbol
+    last_cot_ts = ""
     try:
         while True:
+            symbol = state.active_symbol
             # Poll MT5 for current quote and account
             if mt5.initialize():
                 tick = mt5.symbol_info_tick(symbol)
@@ -280,6 +369,23 @@ async def websocket_endpoint(websocket: WebSocket):
                         "balance": round(acc.balance, 2),
                         "profit": round(acc.profit, 2),
                     })
+
+                # Broadcast live Council deliberation updates when updated
+                state_file = Path("data") / f"live_council_state_{symbol}.json"
+                if state_file.exists():
+                    try:
+                        with open(state_file, "r", encoding="utf-8") as f:
+                            live_cot = json.load(f)
+                        ts = live_cot.get("timestamp_utc", "")
+                        if ts and ts != last_cot_ts:
+                            last_cot_ts = ts
+                            await websocket.send_json({
+                                "type": "COUNCIL_DECISION",
+                                "symbol": symbol,
+                                "cot": live_cot,
+                            })
+                    except Exception:
+                        pass
             await asyncio.sleep(2.0)
     except WebSocketDisconnect:
         manager.disconnect(websocket)

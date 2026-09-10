@@ -55,6 +55,7 @@ class MT5TradingEnv(gym.Env):
         lookback: int = 50,
         spread_pct: float = 0.0002,  # 2 bps round-trip
         initial_equity: float = 10_000.0,
+        symmetric_training: bool = True,
     ):
         super().__init__()
         self.features      = features
@@ -62,6 +63,8 @@ class MT5TradingEnv(gym.Env):
         self.lookback      = lookback
         self.spread_pct    = spread_pct
         self.initial_equity = initial_equity
+        self.symmetric_training = symmetric_training
+        self._invert_episode = False
 
         n_features = features.shape[1]
 
@@ -90,6 +93,10 @@ class MT5TradingEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._reset_state()
+        if self.symmetric_training:
+            self._invert_episode = bool(np.random.rand() > 0.5)
+        else:
+            self._invert_episode = False
         obs = self._get_obs()
         return obs, {}
 
@@ -102,6 +109,8 @@ class MT5TradingEnv(gym.Env):
 
         # Approximate price return from features (index 0 = return_pct after normalization)
         bar_return = float(self.features[self._step, 0]) * 0.01  # denormalize approx
+        if self._invert_episode:
+            bar_return = -bar_return
 
         # PnL = weight × return - |Δweight| × spread
         delta_weight = abs(action - self._position)
@@ -146,6 +155,8 @@ class MT5TradingEnv(gym.Env):
             pad = np.zeros((self.lookback - len(obs), obs.shape[1]), dtype=np.float32)
             obs = np.vstack([pad, obs])
         obs = np.nan_to_num(obs, nan=0.0, posinf=10.0, neginf=-10.0)
+        if self._invert_episode:
+            obs = -obs
         return np.clip(obs, -10.0, 10.0).astype(np.float32)
 
     def render(self):

@@ -69,13 +69,18 @@ Configure the following fields:
 ### Step 4: Configure EA Parameters
 In the **Inputs** tab of the Strategy Tester:
 - `SignalFile`: `finrl_x_signals.csv`
-- `RiskPctPerTrade`: `2.0` (Risk 2% of equity per trade)
+- `RiskPctPerTrade`: `0.1` (Risk **0.10%** of equity per trade — prop firm standard)
 - `MaxDrawdownPct`: `10.0` (Hard stop at 10% drawdown)
 - `MinFreeMarginPct`: `30.0` (Block new orders if margin $< 30\%$)
-- `SpreadMultiplier`: `3.0` (Filters news spread widening)
+- `SpreadMultiplier`: `3.0` (Filters news spread widening, calibrated for 250 pt base spread)
 - `MinSignalStrength`: `0.20` (Minimum $|signal|$ required to enter)
-- `MinConfidence`: `0.40` (Minimum Council confidence threshold)
-- `MinExpectedRR`: `1.50` (Minimum Risk:Reward ratio)
+- `MinConfidence`: `0.60` (High-conviction threshold — filters noisy trades)
+- `MinExpectedRR`: `1.50` (Minimum Risk:Reward ratio for Longs)
+- `MinShortRR`: `0.50` (Minimum Risk:Reward ratio for Shorts)
+- `UseSessionFilter`: `true` (Restricts entries to liquid US pre-market & main session 11:00–20:00 UTC)
+- `FilterFriday`: `true` (Restricts Friday entries to 14:00 UTC max, avoiding weekly OPEX and weekend hedging chop)
+- `EnableBreakeven`: `true` (Moves SL to entry + 10 pts once price reaches +1.0R)
+- `EnableEarlyExit`: `true` (Closes active trade early if Council detects an opposite reversal $|signal| \ge 0.20$)
 
 ---
 

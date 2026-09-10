@@ -23,7 +23,8 @@ import sys
 import time
 import signal
 import argparse
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -134,12 +135,20 @@ def cmd_live(args):
         f"Timeframe: M{settings.mt5.timeframe_minutes}"
     )
 
+    from src.trading.recap_generator import RecapGenerator
+    recap_gen = RecapGenerator()
+    last_daily_recap_date = ""
+    last_weekly_recap_week = ""
+
     with MT5TickFetcher() as fetcher:
         fuser = CorrelationFuser(tick_fetcher=fetcher)
 
         while _running[0]:
             for symbol, council in councils.items():
                 try:
+                    # Manage open positions (Breakeven +1.0R lock)
+                    executor.manage_active_positions(symbol)
+
                     # Fetch latest features
                     date_to   = datetime.now()
                     date_from = date_to - timedelta(hours=48)  # 2 days of M5 bars
@@ -155,12 +164,54 @@ def cmd_live(args):
                     # Council decision
                     decision = council.decide(features, symbol)
 
+                    # Manage active positions (Dynamic Breakeven at +1.0R)
+                    try:
+                        executor.manage_active_positions(symbol)
+                    except Exception as be_err:
+                        logger.debug(f"Breakeven management error: {be_err}")
+
+                    # Persist live state for real-time dashboard synchronization
+                    try:
+                        from src.dashboard.cot_generator import ChainOfThoughtGenerator
+                        cot = ChainOfThoughtGenerator.generate(decision)
+                        cot["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+                        cot["source"] = "LIVE_TRADER"
+                        state_path = Path("data") / f"live_council_state_{symbol}.json"
+                        state_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(state_path, "w", encoding="utf-8") as f:
+                            json.dump(cot, f, indent=2)
+                    except Exception as cot_err:
+                        logger.debug(f"Dashboard state sync error: {cot_err}")
+
                     # Execute if tradeable
                     if decision.is_tradeable:
                         executor.execute_decision(decision, equity)
 
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
+
+            # ─── Automated Daily & Weekly Performance Recap ────────────────────────
+            now_utc = datetime.now(timezone.utc)
+            today_str = now_utc.strftime("%Y-%m-%d")
+            week_str = now_utc.strftime("%Y_W%W")
+
+            # Daily Recap at 23:55 UTC
+            if now_utc.hour == 23 and now_utc.minute >= 50 and today_str != last_daily_recap_date:
+                try:
+                    logger.info("📊 Generating and dispatching automated End-of-Day Performance Recap...")
+                    recap_gen.generate_daily_recap()
+                    last_daily_recap_date = today_str
+                except Exception as e:
+                    logger.warning(f"Automated daily recap failed: {e}")
+
+            # Weekly Recap at Friday 21:55 UTC (market close)
+            if now_utc.weekday() == 4 and now_utc.hour == 21 and now_utc.minute >= 50 and week_str != last_weekly_recap_week:
+                try:
+                    logger.info("📊 Generating and dispatching automated Weekly Performance Recap...")
+                    recap_gen.generate_weekly_recap()
+                    last_weekly_recap_week = week_str
+                except Exception as e:
+                    logger.warning(f"Automated weekly recap failed: {e}")
 
             # Sleep precisely until the next M5 bar close (plus 1.5s buffer)
             now = datetime.now()
@@ -306,6 +357,22 @@ def cmd_dashboard(args):
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+def cmd_recap(args):
+    """Generate and dispatch automated Daily or Weekly Performance Recap."""
+    from src.trading.recap_generator import RecapGenerator
+    gen = RecapGenerator()
+
+    if getattr(args, "weekly", False):
+        logger.info("📊 Generating Weekly Performance Recap...")
+        res = gen.generate_weekly_recap(weeks_back=args.weeks, symbol=args.symbol, dispatch=not args.no_dispatch)
+        logger.info(f"Weekly Recap complete: {res['total_trades']} trades | Net PnL: ${res['net_pnl']:,.2f} | Win Rate: {res['win_rate']:.1f}%")
+    else:
+        target_date = datetime.now(timezone.utc) - timedelta(days=args.days) if args.days > 0 else None
+        logger.info(f"📊 Generating Daily Performance Recap for {'today' if not target_date else target_date.date()}...")
+        res = gen.generate_daily_recap(date=target_date, symbol=args.symbol, dispatch=not args.no_dispatch)
+        logger.info(f"Daily Recap complete: {res['total_trades']} trades | Net PnL: ${res['net_pnl']:,.2f} | Win Rate: {res['win_rate']:.1f}%")
+
+
 # ─── CLI Parser ───────────────────────────────────────────────────────────────
 
 def main():
@@ -326,6 +393,15 @@ def main():
     # live
     p_live = sub.add_parser("live", help="Live/paper trading")
     p_live.add_argument("--symbols", nargs="+", default=["NAS100.x"], help="MT5 symbols to trade (default: NAS100.x)")
+
+    # recap
+    p_recap = sub.add_parser("recap", help="Generate and dispatch Daily or Weekly performance recap")
+    p_recap.add_argument("--daily", action="store_true", help="Generate today's Daily Recap")
+    p_recap.add_argument("--weekly", action="store_true", help="Generate current Weekly Recap")
+    p_recap.add_argument("--days", type=int, default=0, help="Days back for Daily Recap (0=today)")
+    p_recap.add_argument("--weeks", type=int, default=0, help="Weeks back for Weekly Recap (0=current week)")
+    p_recap.add_argument("--symbol", default=None, help="Filter by specific symbol (e.g. NAS100.x)")
+    p_recap.add_argument("--no-dispatch", action="store_true", help="Preview only, do not send to Telegram/Discord")
 
     # backtest
     p_bt = sub.add_parser("backtest", help="Python-side institutional backtest")
@@ -360,6 +436,8 @@ def main():
         cmd_train(args)
     elif args.command == "live":
         cmd_live(args)
+    elif args.command == "recap":
+        cmd_recap(args)
     elif args.command == "backtest":
         cmd_backtest(args)
     elif args.command == "export-signals":

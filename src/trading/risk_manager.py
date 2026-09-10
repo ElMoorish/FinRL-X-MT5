@@ -107,4 +107,20 @@ class RiskManager:
             if active_us_index_trades >= 2:
                 return False, f"Correlated US index limit reached ({active_us_index_trades} active positions in same direction)"
 
+        # 7. H1 Macro Trend Governor: block counter-trend trades against H1 EMA 50
+        try:
+            h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 60)
+            if h1_rates is not None and len(h1_rates) >= 50:
+                import pandas as pd
+                h1_closes = pd.Series([r[4] for r in h1_rates])
+                h1_ema = float(h1_closes.ewm(span=50, adjust=False).mean().iloc[-1])
+                tick = mt5.symbol_info_tick(symbol)
+                bid = tick.bid if tick else float(h1_closes.iloc[-1])
+                if decision.direction > 0 and bid < h1_ema:
+                    return False, f"H1 Macro Trend Governor: Long blocked (Bid {bid:.2f} < H1 EMA50 {h1_ema:.2f})"
+                if decision.direction < 0 and bid > h1_ema:
+                    return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
+        except Exception as e:
+            logger.debug(f"H1 Trend filter check skipped: {e}")
+
         return True, "Approved"

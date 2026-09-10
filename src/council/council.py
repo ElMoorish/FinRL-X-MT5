@@ -58,14 +58,14 @@ class TradingDecision:
     @property
     def confidence(self) -> float:
         return self.council_confidence
-
     @property
     def is_tradeable(self) -> bool:
-        """True if decision meets minimum signal threshold."""
+        """High Conviction Thresholds: conf >= 0.70, |sig| >= 0.20, dual RR."""
+        min_rr = 1.50 if self.direction > 0 else 0.50
         return (
             abs(self.consensus_signal) >= 0.20
-            and self.council_confidence >= 0.40
-            and self.expected_rr >= 1.5
+            and self.council_confidence >= 0.70
+            and self.expected_rr >= min_rr
             and self.direction != 0
         )
 
@@ -201,7 +201,8 @@ class Council:
             e4_sig = self.expert_analyst.get_council_signal(bar_features, symbol)
 
             # Expert 5 (PyMC) — Bayesian TP/SL
-            direction = +1 if e1_sig["signal"] > 0 else -1
+            tentative_score = e1_sig["signal"] + e2_sig["signal"] + e4_sig["signal"]
+            direction = +1 if tentative_score >= 0 else -1
             e5_sig = self.expert_actuary.get_council_signal(
                 bar_features,
                 e3_sig.get("metadata", {}),
@@ -286,8 +287,19 @@ class Council:
 
         raw_signal = self.gate.blend_signals(signals_1d)
 
-        # Apply regime modifier (dampens signal in Bear/Sideways)
-        final_signal = raw_signal * modifier
+        # Direction determined from raw blended consensus (unbiased by sizing modifiers)
+        direction = +1 if raw_signal > 0.05 else -1 if raw_signal < -0.05 else 0
+
+        # Symmetric regime-aware sizing:
+        # Bull regime favours Longs; Bear regime favours Shorts; Sideways dampens both
+        if regime == "BULL":
+            regime_size_multiplier = 1.0 if direction > 0 else 0.35
+        elif regime == "BEAR":
+            regime_size_multiplier = 1.0 if direction < 0 else 0.35
+        else:  # SIDEWAYS
+            regime_size_multiplier = 0.60
+
+        final_signal = raw_signal * regime_size_multiplier
 
         # Confidence = weighted mean of expert confidences
         confidences = np.array([
@@ -299,11 +311,8 @@ class Council:
         ])
         council_confidence = float(np.dot(self.gate.optimal_weights, confidences))
 
-        # Direction
-        direction = +1 if final_signal > 0.05 else -1 if final_signal < -0.05 else 0
-
-        # Position size = |signal| × regime_modifier × confidence
-        position_size = abs(final_signal) * modifier * council_confidence
+        # Position size = |signal| × confidence
+        position_size = abs(final_signal) * council_confidence
 
         # Re-orient TP and SL to guarantee alignment with final blended direction
         tp_price = e5_out.get("tp_price")

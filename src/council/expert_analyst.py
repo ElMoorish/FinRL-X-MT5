@@ -129,14 +129,21 @@ class ExpertAnalyst:
         X, y, feature_cols = self._build_labels(features)
         self._feature_cols = feature_cols
 
+        # Compute class balance weight to prevent bullish/bearish bias
+        n_pos = int((y == 1).sum())
+        n_neg = int((y == 0).sum())
+        scale_weight = float(n_neg) / float(n_pos + 1e-8)
+
         logger.info(
             f"🔬 Training XGBoost Analyst | "
             f"{len(X):,} samples | "
             f"{len(feature_cols)} features | "
-            f"class balance: {y.mean():.3f}"
+            f"class balance: {y.mean():.3f} (scale_pos_weight={scale_weight:.2f})"
         )
 
-        self.model = xgb.XGBClassifier(**self.xgb_params)
+        xgb_params = self.xgb_params.copy()
+        xgb_params["scale_pos_weight"] = scale_weight
+        self.model = xgb.XGBClassifier(**xgb_params)
 
         # Time-series CV for early stopping evaluation
         tscv = TimeSeriesSplit(n_splits=5)
@@ -163,6 +170,11 @@ class ExpertAnalyst:
             logger.info(
                 f"  SHAP | {feature_cols[i]:40s} | {self._shap_importance[i]:.5f}"
             )
+
+        # Compute empirical neutral probability baseline
+        all_probs = self.model.predict_proba(X)[:, 1]
+        self._prob_baseline = float(np.median(all_probs))
+        logger.info(f"⚖️ Analyst neutral probability baseline calibrated to: {self._prob_baseline:.4f}")
 
         logger.info("✅ XGBoost Analyst trained")
         return self
@@ -195,8 +207,10 @@ class ExpertAnalyst:
         X_latest = np.nan_to_num(X_latest, nan=0.0)
 
         # Probability of upward move
-        prob_up  = float(self.model.predict_proba(X_latest)[0, 1])
-        signal   = 2 * prob_up - 1.0   # re-center ∈ [-1, 1]
+        prob_up   = float(self.model.predict_proba(X_latest)[0, 1])
+        prob_base = getattr(self, "_prob_baseline", 0.635)
+        # Symmetrically center around the empirical neutral baseline (std ~ 0.15)
+        signal    = float(np.clip((prob_up - prob_base) / 0.15, -1.0, 1.0))
 
         # SHAP explanation for current bar
         shap_vals = self.explainer.shap_values(X_latest)[0]
@@ -263,6 +277,7 @@ class ExpertAnalyst:
                 "model":            self.model,
                 "feature_cols":     self._feature_cols,
                 "shap_importance":  self._shap_importance,
+                "prob_baseline":    getattr(self, "_prob_baseline", 0.635),
             }, f)
         logger.info(f"💾 Analyst XGBoost saved → {path}")
 
@@ -273,6 +288,7 @@ class ExpertAnalyst:
         self.model            = data["model"]
         self._feature_cols    = data["feature_cols"]
         self._shap_importance = data["shap_importance"]
+        self._prob_baseline   = data.get("prob_baseline", 0.635)
         self.explainer        = shap.TreeExplainer(self.model)
         logger.info(f"📂 Analyst XGBoost loaded ← {path}")
         return self

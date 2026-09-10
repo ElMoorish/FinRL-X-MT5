@@ -14,6 +14,7 @@
 #property copyright "FinRL-X-MT5 K-Dense Council"
 #property version   "1.00"
 #property strict
+#property tester_file "finrl_x_signals.csv"
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
@@ -26,15 +27,34 @@ input int      MagicNumber     = 20260908;                // EA Magic Number
 input string   TradeComment    = "FinRL-X-MT5";           // Order comment
 
 input group "=== Risk Management ========================"
-input double   RiskPctPerTrade = 2.0;    // Risk % per trade (of balance)
+input double   RiskPctPerTrade = 0.5;    // Risk % per trade (of balance, default 0.50%)
 input double   MaxDrawdownPct  = 10.0;   // Max DD % before halt
 input double   MinFreeMarginPct = 30.0;  // Min free margin %
 input double   SpreadMultiplier = 3.0;   // Spread spike multiplier filter
 
 input group "=== Signal Thresholds ======================"
 input double   MinSignalStrength  = 0.20;  // Min |signal| to open trade
-input double   MinConfidence      = 0.40;  // Min council confidence
-input double   MinExpectedRR      = 1.50;  // Min expected Risk:Reward
+input double   MinConfidence      = 0.70;  // Min council confidence (High Conviction)
+input double   MinExpectedRR      = 1.50;  // Min expected Risk:Reward for Longs
+input double   MinShortRR         = 0.50;  // Min expected Risk:Reward for Shorts
+
+input group "=== Session & Day Filters ====================="
+input bool     UseSessionFilter   = true;  // Filter trades to liquid hours
+input int      SessionStartHour   = 11;    // Session Start Hour UTC (11:00 US pre-market)
+input int      SessionEndHour     = 20;    // Session End Hour UTC (20:00 US close)
+input bool     FilterFriday       = true;  // Filter Friday (protect against OPEX & weekend risk)
+input int      FridayEndHour      = 14;    // Max hour UTC to enter on Friday (14:00)
+
+input group "=== Higher Timeframe Trend Governor =========="
+input bool     UseH1TrendFilter   = true;  // Filter trades by 1-Hour Macro Trend
+input int      H1_EMA_Period      = 50;    // H1 EMA Period for Trend Direction
+input double   MinSLIndexPoints   = 60.0;  // Min Stop Loss distance in Index Points (Breathing room)
+
+input group "=== Trade Management =========================="
+input bool     EnableBreakeven    = true;  // Move SL to Breakeven once in profit
+input double   BreakevenRMultiple = 1.0;   // Trigger BE at +1.0R profit
+input double   BreakevenBufferPts = 10.0;  // Extra profit points to lock in (0.10 index pts)
+input bool     EnableEarlyExit    = true;  // Early exit on strong Council reversal signal
 
 input group "=== Timeframe ================================"
 input ENUM_TIMEFRAMES TradingTF = PERIOD_M5;  // Trading timeframe
@@ -47,6 +67,7 @@ CSymbolInfo    SymbolInfo;
 datetime g_LastBarTime   = 0;
 bool     g_TradingHalted = false;
 int      g_SignalHandle  = INVALID_HANDLE;
+int      g_H1_EMA_Handle = INVALID_HANDLE;
 
 // Signal struct loaded from Python CSV output
 struct CouncilSignal {
@@ -66,6 +87,19 @@ CouncilSignal g_Signals[];
 int           g_SignalCount = 0;
 int           g_SignalIdx   = 0;
 
+// Function prototypes
+bool   LoadSignals();
+bool   GetCurrentSignal(datetime bar_time, CouncilSignal &signal);
+bool   ReadLiveBridgeSignal(CouncilSignal &signal);
+void   ManageActivePositions(const CouncilSignal &signal);
+void   ExecuteCouncilSignal(CouncilSignal &signal);
+bool   CheckRiskLimits();
+bool   CheckSpread();
+double ComputeLots(CouncilSignal &signal, double equity, double price, double sl_dist);
+void   CloseOppositePosition(int new_direction);
+double ExtractJsonDouble(string json, string key);
+string ExtractJsonString(string json, string key);
+
 //+------------------------------------------------------------------+
 //| Expert initialization                                             |
 //+------------------------------------------------------------------+
@@ -79,6 +113,16 @@ int OnInit() {
    Print("   Signal file: ", SignalFile);
    Print("   Risk per trade: ", RiskPctPerTrade, "%");
    
+   // Initialize H1 Trend Governor (50 EMA)
+   if (UseH1TrendFilter) {
+      g_H1_EMA_Handle = iMA(_Symbol, PERIOD_H1, H1_EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
+      if (g_H1_EMA_Handle == INVALID_HANDLE) {
+         Print("⚠️ Failed to create H1 EMA handle");
+      } else {
+         Print("📐 H1 Trend Governor active (", H1_EMA_Period, " EMA on H1)");
+      }
+   }
+
    // Load signals from Python-generated CSV
    if (!LoadSignals()) {
       Print("⚠️  No signal file found — will use live Python bridge");
@@ -92,6 +136,10 @@ int OnInit() {
 //| Expert deinitialization                                           |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
+   if (g_H1_EMA_Handle != INVALID_HANDLE) {
+      IndicatorRelease(g_H1_EMA_Handle);
+      g_H1_EMA_Handle = INVALID_HANDLE;
+   }
    Print("K-Dense Council EA stopped. Reason: ", reason);
 }
 
@@ -99,8 +147,14 @@ void OnDeinit(const int reason) {
 //| Expert tick function                                              |
 //+------------------------------------------------------------------+
 void OnTick() {
-   // New bar detection
    datetime current_bar = iTime(_Symbol, TradingTF, 0);
+
+   // Manage open positions on every tick (Breakeven & Early Reversal Exit)
+   CouncilSignal live_signal;
+   GetCurrentSignal(current_bar, live_signal);
+   ManageActivePositions(live_signal);
+
+   // New bar detection
    if (current_bar == g_LastBarTime) return;
    g_LastBarTime = current_bar;
    
@@ -111,6 +165,16 @@ void OnTick() {
    }
    
    if (!CheckRiskLimits()) return;
+
+   // Session & Day filter: trade only liquid US hours and protect against Friday OPEX
+   if (UseSessionFilter) {
+      MqlDateTime dt;
+      TimeToStruct(current_bar, dt);
+      if (dt.hour < SessionStartHour || dt.hour >= SessionEndHour) return;
+      if (FilterFriday && dt.day_of_week == 5) {
+         if (dt.hour >= FridayEndHour) return;
+      }
+   }
    
    // Get current Council signal for this bar
    CouncilSignal signal;
@@ -119,12 +183,31 @@ void OnTick() {
    // Apply signal thresholds
    if (MathAbs(signal.consensus_signal) < MinSignalStrength) return;
    if (signal.confidence < MinConfidence)                    return;
-   if (signal.expected_rr < MinExpectedRR)                   return;
    if (signal.direction == 0)                                return;
+
+   // Dual RR check: Longs use MinExpectedRR (1.50), Shorts use MinShortRR (0.50)
+   if (signal.direction > 0 && signal.expected_rr < MinExpectedRR) return;
+   if (signal.direction < 0 && signal.expected_rr < MinShortRR)    return;
    
    // Spread spike filter
    if (!CheckSpread()) return;
    
+   // H1 Trend Governor: block counter-trend trades against macro 1-Hour trend
+   if (UseH1TrendFilter && g_H1_EMA_Handle != INVALID_HANDLE) {
+      double ema_val[1];
+      if (CopyBuffer(g_H1_EMA_Handle, 0, 0, 1, ema_val) > 0) {
+         double current_bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         // Block Longs if price is below H1 EMA 50 (downtrend)
+         if (signal.direction > 0 && current_bid < ema_val[0]) {
+            return;
+         }
+         // Block Shorts if price is above H1 EMA 50 (uptrend)
+         if (signal.direction < 0 && current_bid > ema_val[0]) {
+            return;
+         }
+      }
+   }
+
    // Execute trade
    ExecuteCouncilSignal(signal);
 }
@@ -135,41 +218,94 @@ void OnTick() {
 //| time,consensus_signal,direction,position_size,tp,sl,rr,conf,regime|
 //+------------------------------------------------------------------+
 bool LoadSignals() {
-   string filepath = "finrl_x_mt5\\" + SignalFile;
-   int handle = FileOpen(filepath, FILE_READ | FILE_CSV | FILE_ANSI, ',');
+   // Try resolving signal file from multiple standard locations
+   string paths[4];
+   paths[0] = "finrl_x_mt5\\" + SignalFile;
+   paths[1] = SignalFile;
+   paths[2] = "finrl_x_mt5\\" + SignalFile;
+   paths[3] = SignalFile;
+   
+   int flags[4];
+   flags[0] = FILE_READ | FILE_TXT | FILE_ANSI;
+   flags[1] = FILE_READ | FILE_TXT | FILE_ANSI;
+   flags[2] = FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON;
+   flags[3] = FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON;
+
+   int handle = INVALID_HANDLE;
+   string matched_path = "";
+   for (int i = 0; i < 4; i++) {
+      handle = FileOpen(paths[i], flags[i]);
+      if (handle != INVALID_HANDLE) {
+         matched_path = paths[i] + (((flags[i] & FILE_COMMON) != 0) ? " (COMMON)" : " (LOCAL)");
+         break;
+      }
+   }
    
    if (handle == INVALID_HANDLE) {
+      Print("⚠️ Could not open signal file '", SignalFile, "' in local or common folders");
       return false;
    }
    
-   // Skip header
+   Print("📂 Opened signal file: ", matched_path);
+   
+   // Skip header line
    if (!FileIsEnding(handle)) {
       string header = FileReadString(handle);
-      FileReadString(handle);  // newline
    }
    
+   int allocated = 60000;
+   ArrayResize(g_Signals, allocated);
    int count = 0;
-   ArrayResize(g_Signals, 10000);
    
-   while (!FileIsEnding(handle) && count < 10000) {
-      CouncilSignal s;
-      string time_str        = FileReadString(handle);
-      s.consensus_signal     = FileReadNumber(handle);
-      s.direction            = (int)FileReadNumber(handle);
-      s.position_size        = FileReadNumber(handle);
-      s.tp_price             = FileReadNumber(handle);
-      s.sl_price             = FileReadNumber(handle);
-      s.expected_rr          = FileReadNumber(handle);
-      s.confidence           = FileReadNumber(handle);
-      s.regime               = FileReadString(handle);
+   while (!FileIsEnding(handle)) {
+      string line = FileReadString(handle);
+      StringTrimLeft(line);
+      StringTrimRight(line);
+      if (StringLen(line) == 0) continue;
       
-      s.bar_time = StringToTime(time_str);
+      string parts[];
+      int n_parts = StringSplit(line, ',', parts);
+      if (n_parts < 9) continue;
+      
+      CouncilSignal s;
+      s.bar_time         = StringToTime(parts[0]);
+      s.consensus_signal = StringToDouble(parts[1]);
+      s.direction        = (int)StringToInteger(parts[2]);
+      s.position_size    = StringToDouble(parts[3]);
+      s.tp_price         = StringToDouble(parts[4]);
+      s.sl_price         = StringToDouble(parts[5]);
+      s.expected_rr      = StringToDouble(parts[6]);
+      s.confidence       = StringToDouble(parts[7]);
+      s.regime           = parts[8];
+      
+      if (s.bar_time == 0) continue;
+      
+      if (count >= allocated) {
+         allocated += 50000;
+         ArrayResize(g_Signals, allocated);
+      }
       g_Signals[count++] = s;
    }
    
    FileClose(handle);
+   ArrayResize(g_Signals, count);
    g_SignalCount = count;
-   Print("📋 Loaded ", count, " Council signals from CSV");
+   Print("📋 Successfully loaded ", count, " Council signals from CSV");
+   
+   if (count > 0) {
+      Print("📋 First signal: Time=", TimeToString(g_Signals[0].bar_time, TIME_DATE|TIME_SECONDS),
+            " | Dir=", g_Signals[0].direction,
+            " | Sig=", DoubleToString(g_Signals[0].consensus_signal, 3),
+            " | Conf=", DoubleToString(g_Signals[0].confidence, 3),
+            " | RR=", DoubleToString(g_Signals[0].expected_rr, 2),
+            " | TP=", DoubleToString(g_Signals[0].tp_price, 2),
+            " | SL=", DoubleToString(g_Signals[0].sl_price, 2));
+      Print("📋 Last signal:  Time=", TimeToString(g_Signals[count-1].bar_time, TIME_DATE|TIME_SECONDS),
+            " | Dir=", g_Signals[count-1].direction,
+            " | Sig=", DoubleToString(g_Signals[count-1].consensus_signal, 3),
+            " | Conf=", DoubleToString(g_Signals[count-1].confidence, 3),
+            " | RR=", DoubleToString(g_Signals[count-1].expected_rr, 2));
+   }
    return count > 0;
 }
 
@@ -177,18 +313,21 @@ bool LoadSignals() {
 //| Get Council signal for current bar                                |
 //+------------------------------------------------------------------+
 bool GetCurrentSignal(datetime bar_time, CouncilSignal &signal) {
-   // CSV mode: find matching bar
+   // CSV mode: binary search for matching bar timestamp (within 120s tolerance)
    if (g_SignalCount > 0) {
-      while (g_SignalIdx < g_SignalCount) {
-         if (g_Signals[g_SignalIdx].bar_time >= bar_time) {
-            if (g_Signals[g_SignalIdx].bar_time == bar_time) {
-               signal = g_Signals[g_SignalIdx];
-               g_SignalIdx++;
-               return true;
-            }
-            break;
+      int low = 0;
+      int high = g_SignalCount - 1;
+      while (low <= high) {
+         int mid = low + (high - low) / 2;
+         long diff = (long)g_Signals[mid].bar_time - (long)bar_time;
+         if (MathAbs(diff) <= 120) {
+            signal = g_Signals[mid];
+            return true;
          }
-         g_SignalIdx++;
+         if (g_Signals[mid].bar_time < bar_time)
+            low = mid + 1;
+         else
+            high = mid - 1;
       }
       return false;
    }
@@ -225,6 +364,74 @@ bool ReadLiveBridgeSignal(CouncilSignal &signal) {
 }
 
 //+------------------------------------------------------------------+
+//| Manage active positions: Breakeven & Council early exit          |
+//+------------------------------------------------------------------+
+void ManageActivePositions(const CouncilSignal &signal) {
+   int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double min_stop_dist = MathMax((double)stops_level * point, 150.0 * point);
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+      if (!PositionSelectByTicket(PositionGetTicket(i))) continue;
+      if (PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if (PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+
+      ulong  ticket     = PositionGetInteger(POSITION_TICKET);
+      long   pos_type   = PositionGetInteger(POSITION_TYPE);
+      double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+      double current_sl = PositionGetDouble(POSITION_SL);
+      double current_tp = PositionGetDouble(POSITION_TP);
+      double current_price = PositionGetDouble(POSITION_PRICE_CURRENT);
+
+      // 1. Early reversal exit: if Council signal flips strongly against position
+      if (EnableEarlyExit && signal.bar_time > 0) {
+         if (pos_type == POSITION_TYPE_BUY && signal.direction < 0 && MathAbs(signal.consensus_signal) >= MinSignalStrength) {
+            Trade.PositionClose(ticket);
+            Print("🔄 Early Reversal Exit (Long closed on Short signal ", DoubleToString(signal.consensus_signal, 3), "): Ticket=", ticket);
+            continue;
+         }
+         if (pos_type == POSITION_TYPE_SELL && signal.direction > 0 && MathAbs(signal.consensus_signal) >= MinSignalStrength) {
+            Trade.PositionClose(ticket);
+            Print("🔄 Early Reversal Exit (Short closed on Long signal ", DoubleToString(signal.consensus_signal, 3), "): Ticket=", ticket);
+            continue;
+         }
+      }
+
+      // 2. Dynamic Breakeven modification (+1.0R)
+      if (EnableBreakeven && current_sl > 0) {
+         if (pos_type == POSITION_TYPE_BUY) {
+            double initial_risk = open_price - current_sl;
+            if (initial_risk > 0) {
+               double profit_dist = current_price - open_price;
+               if (profit_dist >= BreakevenRMultiple * initial_risk) {
+                  double new_sl = NormalizeDouble(open_price + BreakevenBufferPts * point, digits);
+                  if (new_sl > current_sl && (current_price - new_sl) >= min_stop_dist) {
+                     if (Trade.PositionModify(ticket, new_sl, current_tp)) {
+                        Print("🛡️ Breakeven activated for BUY ticket ", ticket, " | New SL=", DoubleToString(new_sl, digits));
+                     }
+                  }
+               }
+            }
+         } else if (pos_type == POSITION_TYPE_SELL) {
+            double initial_risk = current_sl - open_price;
+            if (initial_risk > 0) {
+               double profit_dist = open_price - current_price;
+               if (profit_dist >= BreakevenRMultiple * initial_risk) {
+                  double new_sl = NormalizeDouble(open_price - BreakevenBufferPts * point, digits);
+                  if (new_sl < current_sl && (new_sl - current_price) >= min_stop_dist) {
+                     if (Trade.PositionModify(ticket, new_sl, current_tp)) {
+                        Print("🛡️ Breakeven activated for SELL ticket ", ticket, " | New SL=", DoubleToString(new_sl, digits));
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Execute Council signal as MT5 order                               |
 //+------------------------------------------------------------------+
 void ExecuteCouncilSignal(CouncilSignal &signal) {
@@ -233,21 +440,51 @@ void ExecuteCouncilSignal(CouncilSignal &signal) {
    double price   = signal.direction > 0 ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
                                          : SymbolInfoDouble(_Symbol, SYMBOL_BID);
    
-   // Compute lot size
-   double lots = ComputeLots(signal, equity, price);
-   if (lots <= 0) return;
-   
    // Close opposite position first
    CloseOppositePosition(signal.direction);
    
-   // Set SL/TP (validate they are on correct side of price)
-   double sl = signal.sl_price;
-   double tp = signal.tp_price;
-   
-   // Normalize to symbol digits
+   // Do not open duplicate position if one already exists for this symbol
+   for (int i = PositionsTotal() - 1; i >= 0; i--) {
+      if (PositionSelectByTicket(PositionGetTicket(i))) {
+         if (PositionGetString(POSITION_SYMBOL) == _Symbol &&
+             PositionGetInteger(POSITION_MAGIC) == MagicNumber) {
+            return;
+         }
+      }
+   }
+
+   // Set SL/TP (validate they are on correct side of price and respect broker stop levels)
    int digits = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
+   double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+   long stops_level = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double min_stop_dist = MathMax((double)stops_level * point, 150.0 * point);
+   double min_sl_dist   = MathMax(min_stop_dist, MinSLIndexPoints);
+
+   double sl = signal.sl_price;
+   double sl_dist = MathAbs(price - sl);
+   if (sl_dist < min_sl_dist) sl_dist = min_sl_dist;
+   double min_tp_dist = sl_dist * 1.5;
+
+   double tp = signal.tp_price;
+   if (signal.direction > 0) {
+      if (sl <= 0 || (price - sl) < min_sl_dist)
+         sl = price - sl_dist;
+      if (tp <= 0 || (tp - price) < min_tp_dist)
+         tp = price + min_tp_dist;
+   } else if (signal.direction < 0) {
+      if (sl <= 0 || (sl - price) < min_sl_dist)
+         sl = price + sl_dist;
+      if (tp <= 0 || (price - tp) < min_tp_dist)
+         tp = price - min_tp_dist;
+   }
+
+   // Normalize to symbol digits
    sl = NormalizeDouble(sl, digits);
    tp = NormalizeDouble(tp, digits);
+
+   // Compute lot size using exact calibrated sl_dist for precision dollar risk
+   double lots = ComputeLots(signal, equity, price, sl_dist);
+   if (lots <= 0) return;
    
    string comment = TradeComment + "|" + signal.regime + "|" +
                     DoubleToString(signal.consensus_signal, 3);
@@ -303,24 +540,33 @@ bool CheckRiskLimits() {
 
 bool CheckSpread() {
    long spread = SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
-   // Check spread against multiplier threshold
-   return (spread <= (long)(SpreadMultiplier * 50));
+   // Normal index spread is 150-250 points. Allow up to SpreadMultiplier * 250 (e.g. 750 pts)
+   long max_spread = (long)(SpreadMultiplier * 250);
+   return (spread <= max_spread);
 }
 
 //+------------------------------------------------------------------+
 //| Lot sizing: Council signal → MT5 lots                             |
 //+------------------------------------------------------------------+
-double ComputeLots(CouncilSignal &signal, double equity, double price) {
-   double dollar_risk = equity * RiskPctPerTrade / 100.0 * signal.position_size;
+double ComputeLots(CouncilSignal &signal, double equity, double price, double sl_dist) {
+   double dollar_risk = equity * (RiskPctPerTrade / 100.0) * signal.position_size;
    double contract    = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
-   double lot_raw     = dollar_risk / (price * contract + 0.0001);
+   if (contract <= 0) contract = 1.0;
+   
+   if (sl_dist <= 0) sl_dist = price * 0.005;
+   
+   double loss_per_lot = sl_dist * contract;
+   double lot_raw      = dollar_risk / (loss_per_lot + 1e-8);
    
    double min_lot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    double max_lot  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    double lot_step = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+   if (min_lot <= 0) min_lot = 0.01;
+   if (max_lot <= 0) max_lot = 100.0;
+   if (lot_step <= 0) lot_step = 0.01;
    
    double lots = MathMax(min_lot, MathMin(max_lot,
-                  MathRound(lot_raw / lot_step) * lot_step));
+                  MathFloor(lot_raw / lot_step) * lot_step));
    return NormalizeDouble(lots, 2);
 }
 

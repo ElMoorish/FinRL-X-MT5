@@ -206,6 +206,65 @@ class MT5Executor:
                         reason=f"Council flipped to {'BUY' if new_direction > 0 else 'SELL'}"
                     )
 
+    def manage_active_positions(self, symbol: str) -> None:
+        """Dynamic Breakeven management (+1.0R profit triggers BE lock)."""
+        positions = mt5.positions_get(symbol=symbol)
+        if not positions:
+            return
+
+        info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        if not info or not tick:
+            return
+
+        min_stop_pts = max(info.trade_stops_level, 20) * info.point
+
+        for pos in positions:
+            if pos.magic != self.cfg.magic_number:
+                continue
+
+            open_price = pos.price_open
+            current_sl = pos.sl
+            current_tp = pos.tp
+
+            if current_sl <= 0:
+                continue
+
+            if pos.type == mt5.ORDER_TYPE_BUY:
+                initial_risk = open_price - current_sl
+                if initial_risk > 0:
+                    profit_dist = tick.bid - open_price
+                    if profit_dist >= 1.0 * initial_risk:
+                        new_sl = round(open_price + (10.0 * info.point), info.digits)
+                        if new_sl > current_sl and (tick.bid - new_sl) >= min_stop_pts:
+                            req = {
+                                "action": mt5.TRADE_ACTION_SLTP,
+                                "position": pos.ticket,
+                                "symbol": symbol,
+                                "sl": new_sl,
+                                "tp": current_tp,
+                            }
+                            res = mt5.order_send(req)
+                            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                                logger.info(f"🛡️ Breakeven activated for BUY #{pos.ticket} on {symbol} | New SL={new_sl}")
+            elif pos.type == mt5.ORDER_TYPE_SELL:
+                initial_risk = current_sl - open_price
+                if initial_risk > 0:
+                    profit_dist = open_price - tick.ask
+                    if profit_dist >= 1.0 * initial_risk:
+                        new_sl = round(open_price - (10.0 * info.point), info.digits)
+                        if new_sl < current_sl and (new_sl - tick.ask) >= min_stop_pts:
+                            req = {
+                                "action": mt5.TRADE_ACTION_SLTP,
+                                "position": pos.ticket,
+                                "symbol": symbol,
+                                "sl": new_sl,
+                                "tp": current_tp,
+                            }
+                            res = mt5.order_send(req)
+                            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                                logger.info(f"🛡️ Breakeven activated for SELL #{pos.ticket} on {symbol} | New SL={new_sl}")
+
     def _compute_lots(
         self,
         symbol: str,
@@ -273,9 +332,11 @@ class MT5Executor:
             "type_filling": filling_mode,
         }
 
-        # Dynamically validate and sanitize stops against trade_stops_level and trade direction
+        # Dynamically validate and sanitize stops against trade_stops_level, breathing room, and direction
         if info and tick:
-            min_stop_pts = max(info.trade_stops_level, 20) * info.point
+            broker_stop_pts = max(info.trade_stops_level, 20) * info.point
+            is_index = any(idx in symbol.upper() for idx in ["NAS100", "USTEC", "US30", "SPX", "GER40"])
+            min_stop_pts = max(broker_stop_pts, 60.0 if is_index else broker_stop_pts)
             tick_size = info.trade_tick_size if info.trade_tick_size > 0 else info.point
 
             if direction > 0:  # BUY: SL below Bid, TP above Bid

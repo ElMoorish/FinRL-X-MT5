@@ -255,9 +255,12 @@ class ExpertActuary:
             f"conf={result['trade_confidence']:.3f}"
         )
 
+        direction_sign = 1.0 if direction > 0 else (-1.0 if direction < 0 else 0.0)
+        directional_signal = direction_sign * (result["trade_confidence"] * 2.0 - 1.0)
+
         return {
             "expert":     "actuary",
-            "signal":     result["trade_confidence"] * 2 - 1,  # map [0,1] → [-1,1]
+            "signal":     float(directional_signal),
             "confidence": result["trade_confidence"],
             "tp_price":   result["tp_price"],
             "sl_price":   result["sl_price"],

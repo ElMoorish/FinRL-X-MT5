@@ -148,7 +148,7 @@ class MT5TickBacktestBridge:
 
         deployed_destinations = []
 
-        # Terminal Data Path (MQL5\Files\finrl_x_mt5)
+        # Terminal Data Path (MQL5\Files\finrl_x_mt5 and MQL5\Files)
         if hasattr(info, "data_path") and info.data_path:
             terminal_files = Path(info.data_path) / "MQL5" / "Files" / "finrl_x_mt5"
             terminal_files.mkdir(parents=True, exist_ok=True)
@@ -157,7 +157,13 @@ class MT5TickBacktestBridge:
                 dst.write(src.read())
             deployed_destinations.append(str(dest))
 
-        # Terminal Common Path (Common\Files\finrl_x_mt5)
+            # Also deploy directly to root MQL5\Files for direct Strategy Tester access
+            dest_root = Path(info.data_path) / "MQL5" / "Files" / filename
+            with open(source_csv, "rb") as src, open(dest_root, "wb") as dst:
+                dst.write(src.read())
+            deployed_destinations.append(str(dest_root))
+
+        # Terminal Common Path (Common\Files\finrl_x_mt5 and Common\Files)
         if hasattr(info, "commondata_path") and info.commondata_path:
             common_files = Path(info.commondata_path) / "Files" / "finrl_x_mt5"
             common_files.mkdir(parents=True, exist_ok=True)
@@ -165,6 +171,32 @@ class MT5TickBacktestBridge:
             with open(source_csv, "rb") as src, open(dest_common, "wb") as dst:
                 dst.write(src.read())
             deployed_destinations.append(str(dest_common))
+
+            dest_common_root = Path(info.commondata_path) / "Files" / filename
+            with open(source_csv, "rb") as src, open(dest_common_root, "wb") as dst:
+                dst.write(src.read())
+            deployed_destinations.append(str(dest_common_root))
+
+        # Tester Agent Paths (Tester\<hash>\Agent-*\MQL5\Files)
+        try:
+            terminal_id = Path(info.data_path).name
+            tester_root = Path(info.data_path).parent.parent / "Tester" / terminal_id
+            if tester_root.exists():
+                for agent_dir in tester_root.glob("Agent-*"):
+                    agent_files = agent_dir / "MQL5" / "Files"
+                    agent_files.mkdir(parents=True, exist_ok=True)
+                    agent_sub = agent_files / "finrl_x_mt5"
+                    agent_sub.mkdir(parents=True, exist_ok=True)
+
+                    with open(source_csv, "rb") as src:
+                        content = src.read()
+                    with open(agent_files / filename, "wb") as dst:
+                        dst.write(content)
+                    with open(agent_sub / filename, "wb") as dst:
+                        dst.write(content)
+                    deployed_destinations.append(str(agent_files / filename))
+        except Exception as e:
+            logger.debug(f"Could not deploy to tester agent folders: {e}")
 
         for dest in deployed_destinations:
             logger.info(f"🚀 Deployed signals to MT5: {dest}")

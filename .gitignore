@@ -64,3 +64,12 @@ test_*.png
 ref_*.png
 pill_*.png
 scratch_*.png
+Results*.*
+
+# Local Runtime Data and Backtest Reports
+data/
+reports/
+
+# Excluded Vercel Website Project (Independent Deployment)
+website/
+web/
