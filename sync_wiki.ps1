@@ -13,9 +13,13 @@
 [CmdletBinding()]
 param (
     [string]$WikiRepoUrl = "https://github.com/ElMoorish/FinRL-X-MT5.wiki.git",
-    [string]$SourceDir = "$PSScriptRoot\wiki",
-    [string]$TempDir = "$PSScriptRoot\.wiki_repo"
+    [string]$SourceDir = "",
+    [string]$TempDir = ""
 )
+
+$ScriptBase = if (![string]::IsNullOrWhiteSpace($PSScriptRoot)) { $PSScriptRoot } else { (Get-Location).Path }
+if ([string]::IsNullOrWhiteSpace($SourceDir)) { $SourceDir = Join-Path $ScriptBase "wiki" }
+if ([string]::IsNullOrWhiteSpace($TempDir)) { $TempDir = Join-Path $ScriptBase ".wiki_repo" }
 
 Write-Host "`n========================================================" -ForegroundColor Cyan
 Write-Host "   FINRL-X GITHUB WIKI SYNCHRONIZATION ENGINE           " -ForegroundColor Cyan
