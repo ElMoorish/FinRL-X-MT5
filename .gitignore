@@ -65,6 +65,7 @@ ref_*.png
 pill_*.png
 scratch_*.png
 Results*.*
+*.jfif
 
 # Local Runtime Data and Backtest Reports
 data/

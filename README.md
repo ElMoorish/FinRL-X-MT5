@@ -1,13 +1,22 @@
 # 🏛️ FinRL-X-MT5
 ### *K-Dense Council: Multi-Agent Mixture-of-Experts Trading System for MetaTrader 5*
 
+<p align="left">
+  <a href="https://primeclub-quant.vercel.app"><img src="https://img.shields.io/badge/Prime_Quant-Live_Commercial_Platform-C5A059?style=for-the-badge&logo=safari&logoColor=white" alt="Live Platform" /></a>
+  <a href="https://primeclub-quant.vercel.app/#pricing"><img src="https://img.shields.io/badge/Commercial_Tiers-VIP_Alpha_%26_Model_Weights-12151A?style=for-the-badge&logo=telegram&logoColor=C5A059" alt="Commercial Tiers" /></a>
+  <a href="https://t.me/primeclubsignals_public"><img src="https://img.shields.io/badge/Telegram-Public_Alpha-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram Channel" /></a>
+  <a href="https://discord.gg/Ch3DxJ2Bb"><img src="https://img.shields.io/badge/Discord-Quant_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord Community" /></a>
+</p>
+
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-CUDA%20Enabled-EE4C2C?style=flat&logo=pytorch&logoColor=white)](https://pytorch.org)
 [![MetaTrader 5](https://img.shields.io/badge/MetaTrader-5%20Bridge-0078D4?style=flat&logo=windows&logoColor=white)](https://www.metatrader5.com)
 [![Polars](https://img.shields.io/badge/Data-Polars%20Vectorized-CD792C?style=flat)](https://pola.rs)
 [![Architecture](https://img.shields.io/badge/Architecture-MoE%20%2B%20NSGA--III-blueviolet?style=flat)](#-architecture-overview)
-[![Donate USDT](https://img.shields.io/badge/Donate-USDT%20(TRC20)-26A17B?style=flat&logo=tether&logoColor=white)](#-support--donations)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](LICENSE)
+
+> 🌐 **Official Production Platform & Monetization Portal:** [primeclub-quant.vercel.app](https://primeclub-quant.vercel.app)  
+> Access real-time multi-agent deliberations, interactive prop challenge drawdown calculators, daily institutional recaps, and pre-trained production model checkpoints.
 
 **FinRL-X-MT5** is an institutional-grade algorithmic trading framework that adapts the Deep Reinforcement Learning principles of [FinRL](https://github.com/AI4Finance-Foundation/FinRL) to **MetaTrader 5**. 
 
@@ -173,6 +182,19 @@ Deep-dive documentation is available in the `docs/` folder:
 This repository skeleton contains **NO private broker account numbers, passwords, server IPs, or proprietary client files**.
 - `.gitignore` strictly excludes `.env`, `models/`, `logs/`, SQLite databases, tick caches, and local MT5 data paths.
 - All credentials are abstracted via environment variables (`pydantic-settings`).
+
+---
+
+## 💎 Commercial Tiers & VIP Alpha Signals
+
+For live execution signals, prop challenge passkeeper rules, pre-calibrated model weights, and institutional licensing, visit the official **[FinRL-X Prime Quant Portal](https://primeclub-quant.vercel.app)**:
+
+* **Tier 1: Prime VIP Alpha ($79/mo):** High-conviction Council signals dispatched directly to private Telegram & Discord feeds with automated daily trade recaps and weekly macro tear-sheets.
+* **Tier 2: Prop Passkeeper ($199/mo):** Strict 0.50% actuary lot sizing, pre-market New York bias reports, and challenge preservation governance.
+* **Tier 3: Quant Pro Model Weights ($1,997):** Direct checkpoint weights (SAC, Gaussian HMM, TimesFM, XGBoost, and Bayesian VaR) dropping right into the framework's `weights/` directory.
+* **Tier 4: Enterprise Bespoke ($9,977):** Perpetual commercial license, multi-asset checkpoints, and rolling retraining pipeline code.
+
+👉 **[Explore All Commercial Tiers & Model Checkpoints](https://primeclub-quant.vercel.app/#pricing)**
 
 ---
 
