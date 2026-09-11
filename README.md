@@ -3,6 +3,7 @@
 
 <p align="left">
   <a href="https://primeclub-quant.vercel.app"><img src="https://img.shields.io/badge/Prime_Quant-Live_Commercial_Platform-C5A059?style=for-the-badge&logo=safari&logoColor=white" alt="Live Platform" /></a>
+  <a href="https://github.com/ElMoorish/FinRL-X-MT5/wiki"><img src="https://img.shields.io/badge/Wiki-Official_Documentation-792EE5?style=for-the-badge&logo=gitbook&logoColor=white" alt="GitHub Wiki" /></a>
   <a href="https://primeclub-quant.vercel.app/#pricing"><img src="https://img.shields.io/badge/Commercial_Tiers-VIP_Alpha_%26_Model_Weights-12151A?style=for-the-badge&logo=telegram&logoColor=C5A059" alt="Commercial Tiers" /></a>
   <a href="https://t.me/primeclubsignals_public"><img src="https://img.shields.io/badge/Telegram-Public_Alpha-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram Channel" /></a>
   <a href="https://discord.gg/Ch3DxJ2Bb"><img src="https://img.shields.io/badge/Discord-Quant_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord Community" /></a>
@@ -13,9 +14,11 @@
 [![MetaTrader 5](https://img.shields.io/badge/MetaTrader-5%20Bridge-0078D4?style=flat&logo=windows&logoColor=white)](https://www.metatrader5.com)
 [![Polars](https://img.shields.io/badge/Data-Polars%20Vectorized-CD792C?style=flat)](https://pola.rs)
 [![Architecture](https://img.shields.io/badge/Architecture-MoE%20%2B%20NSGA--III-blueviolet?style=flat)](#-architecture-overview)
+[![Wiki](https://img.shields.io/badge/Wiki-Knowledge_Base-success?style=flat)](https://github.com/ElMoorish/FinRL-X-MT5/wiki)
 [![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat)](LICENSE)
 
 > 🌐 **Official Production Platform & Monetization Portal:** [primeclub-quant.vercel.app](https://primeclub-quant.vercel.app)  
+> 📖 **Official Technical Wiki & Architecture Guide:** [github.com/ElMoorish/FinRL-X-MT5/wiki](https://github.com/ElMoorish/FinRL-X-MT5/wiki)  
 > Access real-time multi-agent deliberations, interactive prop challenge drawdown calculators, daily institutional recaps, and pre-trained production model checkpoints.
 
 **FinRL-X-MT5** is an institutional-grade algorithmic trading framework that adapts the Deep Reinforcement Learning principles of [FinRL](https://github.com/AI4Finance-Foundation/FinRL) to **MetaTrader 5**. 
@@ -49,6 +52,20 @@ Explore our comprehensive technical whitepapers covering machine learning topolo
 * 📑 **[Multi-Agent Reinforcement Learning for MetaTrader 5](docs/articles/01_MULTI_AGENT_REINFORCEMENT_LEARNING_MT5.md):** Overcoming single-agent non-stationarity via the 5-Specialist Council and NSGA-III Pareto gating.
 * 🛡️ **[Defensive Capital Allocation & 0.50% Drawdown Guards](docs/articles/02_DEFENSIVE_CAPITAL_ALLOCATION_DRAWDOWN_GUARDS.md):** Mathematical position sizing, circuit breakers, and surviving prop firm evaluation limits.
 * 📈 **[Hidden Markov Models (HMM) for Regime Detection on NAS100](docs/articles/03_HMM_REGIME_DETECTION_NAS100.md):** Gaussian HMM state decoding, Baum-Welch training, and filtering choppy consolidation.
+
+---
+
+## 📖 Official Technical Wiki & Knowledge Base
+
+Explore our comprehensive, production-grade technical documentation hosted on the [GitHub Wiki](https://github.com/ElMoorish/FinRL-X-MT5/wiki):
+
+* 🏛️ **[Wiki Home: System Blueprint & Topology](https://github.com/ElMoorish/FinRL-X-MT5/wiki/Home)**
+* 🧠 **[01. The 5-Agent Council Architecture](https://github.com/ElMoorish/FinRL-X-MT5/wiki/01-Council-Mixture-of-Experts)** &mdash; Deep dive into SAC, HMM, TimesFM, XGBoost, and PyMC Actuary.
+* 🛡️ **[02. Risk Management Architecture & 0.50% Capital Ceiling](https://github.com/ElMoorish/FinRL-X-MT5/wiki/02-Risk-Management-&-0.50%-Ceiling)** &mdash; Sizing formulas, contract multipliers, and Rule 8.
+* 🎯 **[03. The +1.0R Dynamic Breakeven Engine](https://github.com/ElMoorish/FinRL-X-MT5/wiki/03-Dynamic-Breakeven-Engine)** &mdash; Trailing stop mechanics and spread buffer defenses.
+* ⚡ **[04. MetaTrader 5 Bridge Setup & Live Deployment Guide](https://github.com/ElMoorish/FinRL-X-MT5/wiki/04-MetaTrader-5-Bridge-Setup)** &mdash; Terminal flags, `.env` credentials, and daemon execution.
+* 🏆 **[05. The Prop Firm Passkeeper Evaluation Protocol](https://github.com/ElMoorish/FinRL-X-MT5/wiki/05-Prop-Firm-Evaluation-Protocol)** &mdash; 3-stage circuit breakers for FTMO and Goat Funded Trader.
+* 🖥️ **[06. Local Monitoring Dashboard & Telemetry Server](https://github.com/ElMoorish/FinRL-X-MT5/wiki/06-Local-Dashboard-&-Monitoring)** &mdash; FastAPI endpoints, WebSocket feeds, and ticket audits.
 
 ---
 

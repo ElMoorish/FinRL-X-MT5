@@ -64,6 +64,7 @@ test_*.png
 ref_*.png
 pill_*.png
 scratch_*.png
+Capture*.*
 Results*.*
 *.jfif
 
@@ -74,3 +75,7 @@ reports/
 # Excluded Vercel Website Project (Independent Deployment)
 website/
 web/
+
+# Local GitHub Wiki Git Sub-Clone
+.wiki_repo/
+
