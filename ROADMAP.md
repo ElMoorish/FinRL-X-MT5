@@ -1,4 +1,4 @@
-﻿# FinRL-X-MT5 Engineering Roadmap
+# FinRL-X-MT5 Engineering Roadmap
 
 > This document tracks deliberate design deferrals — improvements that are architecturally
 > correct but require model retraining or larger-scope changes before deployment.
@@ -16,8 +16,8 @@ These were identified in the Architecture Audit (2026-09-11) and applied without
 | GAP-X2 | expert_prophet.py | detect_regime_change() None-guard added |
 | GAP-X3 | mt5_executor.py | Missing import math added |
 | GAP-X1 | correlation_fuser.py | DataStore caching wired into feature pipeline |
-| GAP-X7 | acktest_engine.py | Breakeven management added (mirrors live executor) |
-| OBS-2  | isk_manager.py + cot_generator.py | H1 EMA50 extracted to shared get_h1_trend() |
+| GAP-X7 | backtest_engine.py | Breakeven management added (mirrors live executor) |
+| OBS-2  | risk_manager.py + cot_generator.py | H1 EMA50 extracted to shared get_h1_trend() |
 
 ---
 
@@ -25,10 +25,10 @@ These were identified in the Architecture Audit (2026-09-11) and applied without
 
 ### GAP-X6: Real Rolling Pearson Cross-Correlation
 **Priority: HIGH**
-**File:** src/data/correlation_fuser.py
+**File:** `src/data/correlation_fuser.py`
 
 **Current state (line 260-261):**
-The _add_correlation_metrics() uses a simple rolling mean as a proxy for correlation.
+The `_add_correlation_metrics()` uses a simple rolling mean as a proxy for correlation.
 The actual Pearson correlation between MT5 returns and Yahoo basket returns is not computed.
 
 **Why deferred:**
@@ -38,12 +38,12 @@ out-of-sample walk-forward validation before deployment.
 
 **Implementation approach:**
 Rolling Pearson via z-score product (native Polars, no external deps):
-`python
+```python
 def _rolling_pearson(self, df, col_a, col_b, window=20):
     za = (pl.col(col_a) - pl.col(col_a).rolling_mean(window)) / (pl.col(col_a).rolling_std(window) + 1e-8)
     zb = (pl.col(col_b) - pl.col(col_b).rolling_mean(window)) / (pl.col(col_b).rolling_std(window) + 1e-8)
     return (za * zb).rolling_mean(window).alias(f'{col_a}_{col_b}_corr20')
-`
+```
 
 **Acceptance criteria:**
 - [ ] Implement _rolling_pearson() in CorrelationFuser

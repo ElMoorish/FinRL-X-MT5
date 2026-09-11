@@ -121,15 +121,15 @@ class RiskManager:
             if decision.direction < 0 and bid > h1_ema:
                 return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
 
-        # 8. Strict Monetary Risk Budget Enforcement
+        # 8. Strict Monetary Risk Budget Enforcement (0.50% hard risk ceiling)
         if lots is not None and lots > 0:
             eff_sl = sl_price if sl_price is not None else decision.sl_price
             if eff_sl and eff_sl > 0 and entry_price and entry_price > 0 and acc.equity > 0:
-                contract_size = info.trade_contract_size if hasattr(info, "trade_contract_size") else spec.get("contract_size", 1.0)
+                contract_size = info.trade_contract_size if (info and hasattr(info, "trade_contract_size") and info.trade_contract_size > 0) else spec.get("contract_size", 1.0)
                 sl_dist = abs(entry_price - eff_sl)
                 monetary_risk = lots * sl_dist * contract_size
                 max_risk_pct = getattr(self.cfg, "default_risk_pct", 0.005)
-                max_allowed_risk = acc.equity * max_risk_pct * 1.30
+                max_allowed_risk = acc.equity * max_risk_pct * 1.01  # Strict 0.50% ceiling (+1% micro-buffer for tick precision)
                 if monetary_risk > max_allowed_risk:
                     return False, (
                         f"Monetary risk ceiling exceeded: ${monetary_risk:.2f} > "

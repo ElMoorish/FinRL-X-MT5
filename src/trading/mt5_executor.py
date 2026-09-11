@@ -375,19 +375,30 @@ class MT5Executor:
         contract_size = inst_cfg.get("contract_size", info.trade_contract_size if info else 1.0)
         price = entry_price or (mt5.symbol_info_tick(symbol).ask if mt5.symbol_info_tick(symbol) else 1.0)
 
-        # Monetary risk calculation
-        dollar_risk = equity * self.cfg.default_risk_pct * decision.position_size
+        # Monetary risk calculation (Strict 0.50% ceiling)
+        dollar_risk = equity * self.cfg.default_risk_pct
         target_sl = sl_price if sl_price is not None else decision.sl_price
         sl_dist = abs(price - target_sl) if target_sl and target_sl > 0 else (price * 0.01)
         loss_per_lot = sl_dist * contract_size
-        lot_raw = dollar_risk / (loss_per_lot + 1e-8)
+        if loss_per_lot <= 0:
+            return 0.0
 
         # Round to lot step
         step  = inst_cfg.get("lot_step", info.volume_step if info else 0.01)
         min_l = inst_cfg.get("min_lot", info.volume_min if info else 0.01)
         max_l = inst_cfg.get("max_lot", info.volume_max if info else 10.0)
 
-        lots = round(max(min_l, min(max_l, math.floor(lot_raw / step) * step)), 2)
+        quantized = math.floor(dollar_risk / loss_per_lot / step) * step
+        if quantized < min_l:
+            if min_l * loss_per_lot > dollar_risk:
+                logger.warning(
+                    f"Executor fallback [{symbol}]: min_lot {min_l} loss (${min_l * loss_per_lot:.2f}) "
+                    f"exceeds 0.50% risk budget (${dollar_risk:.2f}) — order blocked"
+                )
+                return 0.0
+            quantized = min_l
+
+        lots = round(min(max_l, quantized), 2)
         return lots
 
     def _build_request(

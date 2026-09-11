@@ -156,12 +156,19 @@ class BacktestEngine:
                 direction = decision.direction
                 entry_price = close_p + ((self.slippage_points * point) * direction)
 
-                # Compute position size
+                # Compute position size (strict 0.50% ceiling aligned with live executor)
                 risk_usd = equity * self.cfg.default_risk_pct * decision.position_size
                 sl_dist = abs(entry_price - decision.sl_price) if decision.sl_price else (entry_price * 0.01)
                 vol_raw = risk_usd / (sl_dist * contract_size + 1e-8)
                 step = spec.get("lot_step", 0.01)
-                vol = max(spec.get("min_lot", 0.01), round(vol_raw / step) * step)
+                min_lot = spec.get("min_lot", 0.01)
+                quantized = math.floor(vol_raw / step) * step
+                if quantized < min_lot:
+                    if (min_lot * sl_dist * contract_size) > risk_usd:
+                        continue  # Skip entry: even min_lot exceeds 0.5% risk budget
+                    vol = min_lot
+                else:
+                    vol = round(quantized, 4)
 
                 active_trade = SimulatedTrade(
                     entry_time=bar_time,
