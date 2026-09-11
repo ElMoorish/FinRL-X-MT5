@@ -42,6 +42,16 @@ FinRL-X-MT5 features a high-performance local web dashboard with real-time Tradi
 
 ---
 
+## 📚 Quantitative Research & Engineering Whitepapers
+
+Explore our comprehensive technical whitepapers covering machine learning topology, actuarial risk bounds, and regime classification:
+
+* 📑 **[Multi-Agent Reinforcement Learning for MetaTrader 5](docs/articles/01_MULTI_AGENT_REINFORCEMENT_LEARNING_MT5.md):** Overcoming single-agent non-stationarity via the 5-Specialist Council and NSGA-III Pareto gating.
+* 🛡️ **[Defensive Capital Allocation & 0.50% Drawdown Guards](docs/articles/02_DEFENSIVE_CAPITAL_ALLOCATION_DRAWDOWN_GUARDS.md):** Mathematical position sizing, circuit breakers, and surviving prop firm evaluation limits.
+* 📈 **[Hidden Markov Models (HMM) for Regime Detection on NAS100](docs/articles/03_HMM_REGIME_DETECTION_NAS100.md):** Gaussian HMM state decoding, Baum-Welch training, and filtering choppy consolidation.
+
+---
+
 ## 🏛️ Architecture Overview
 
 
