@@ -60,10 +60,16 @@ class MT5LotSizer:
             logger.warning(f"LotSizer: Could not fetch symbol info for {symbol}")
             return 0.0
 
-        min_lot  = info.volume_min
-        max_lot  = info.volume_max
+        spec = self.cfg.instrument_config.get(symbol, {})
+        min_lot  = spec.get("min_lot", info.volume_min)
+        max_lot  = min(info.volume_max, spec.get("max_lot", info.volume_max))
         lot_step = info.volume_step
-        contract_size = info.trade_contract_size
+
+        # Validate contract size strictly — never guess 1.0 for indices/commodities
+        contract_size = info.trade_contract_size if (info and info.trade_contract_size > 0) else spec.get("contract_size")
+        if not contract_size or contract_size <= 0:
+            logger.error(f"LotSizer [{symbol}]: Contract size is unknown or non-positive ({contract_size}) — blocking order for capital safety")
+            return 0.0
 
         if entry_price is None or entry_price <= 0:
             tick = mt5.symbol_info_tick(symbol)
@@ -94,7 +100,6 @@ class MT5LotSizer:
 
         # 4. Compute raw volume
         # Monetary loss for 1 standard lot = sl_dist * contract_size
-        contract_size = info.trade_contract_size if (info and info.trade_contract_size > 0) else self.cfg.instrument_config.get(symbol, {}).get("contract_size", 1.0)
         loss_per_lot = sl_dist * contract_size
 
         if loss_per_lot <= 0:

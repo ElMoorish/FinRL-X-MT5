@@ -123,9 +123,15 @@ class RiskManager:
 
         # 8. Strict Monetary Risk Budget Enforcement (0.50% hard risk ceiling)
         if lots is not None and lots > 0:
+            config_max_lot = spec.get("max_lot")
+            if config_max_lot and lots > config_max_lot:
+                return False, f"Lot size {lots} exceeds configured max_lot ceiling ({config_max_lot}) for {symbol}"
+
             eff_sl = sl_price if sl_price is not None else decision.sl_price
             if eff_sl and eff_sl > 0 and entry_price and entry_price > 0 and acc.equity > 0:
-                contract_size = info.trade_contract_size if (info and hasattr(info, "trade_contract_size") and info.trade_contract_size > 0) else spec.get("contract_size", 1.0)
+                contract_size = info.trade_contract_size if (info and hasattr(info, "trade_contract_size") and info.trade_contract_size > 0) else spec.get("contract_size")
+                if not contract_size or contract_size <= 0:
+                    return False, f"Contract size unknown for {symbol} — trade blocked for safety"
                 sl_dist = abs(entry_price - eff_sl)
                 monetary_risk = lots * sl_dist * contract_size
                 max_risk_pct = getattr(self.cfg, "default_risk_pct", 0.005)

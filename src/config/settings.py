@@ -67,7 +67,7 @@ class MT5Settings(BaseSettings):
     # Instrument-specific lot config (verified against broker terminal specifications)
     instrument_config: dict = Field(
         default={
-            "NAS100.x":  {"contract_size": 10.0,   "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
+            "NAS100.x":  {"contract_size": 10.0,   "min_lot": 0.01, "max_lot": 0.04, "lot_step": 0.01, "point": 0.01,  "digits": 2},
             "WTI.x":    {"contract_size": 100.0,  "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
             "XAGUSD.x": {"contract_size": 5000.0, "min_lot": 0.01, "lot_step": 0.01, "point": 0.001, "digits": 3},
             "US30.x":   {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
