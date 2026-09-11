@@ -128,34 +128,29 @@ class ChainOfThoughtGenerator:
             "narrative": actuary_desc
         })
 
-        # Check H1 Macro Trend Governor if MT5 connected
+        # Check H1 Macro Trend Governor using the same shared utility as RiskManager
+        # (OBS-2 fix: ensures CoT display always matches the actual trade blocker result)
         h1_trend_status = "UNKNOWN"
         h1_trend_passed = True
         h1_val_str = "H1 EMA50 Check"
         try:
-            import MetaTrader5 as mt5
-            if mt5.initialize():
-                h1_rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_H1, 0, 60)
-                if h1_rates is not None and len(h1_rates) >= 50:
-                    import pandas as pd
-                    h1_closes = pd.Series([r[4] for r in h1_rates])
-                    h1_ema = float(h1_closes.ewm(span=50, adjust=False).mean().iloc[-1])
-                    tick = mt5.symbol_info_tick(sym)
-                    bid = tick.bid if tick else float(h1_closes.iloc[-1])
-                    if bid > h1_ema:
-                        h1_trend_status = f"BULLISH (Bid {bid:.1f} > EMA50 {h1_ema:.1f})"
-                        if decision.direction < 0:
-                            h1_trend_passed = False
-                            h1_val_str = f"Short Blocked (Bid > H1 EMA50 {h1_ema:.1f})"
-                        else:
-                            h1_val_str = f"Long Aligned (Bid > H1 EMA50 {h1_ema:.1f})"
+            from src.trading.risk_manager import RiskManager
+            h1_ema, bid = RiskManager.get_h1_trend(sym)
+            if h1_ema is not None and bid is not None:
+                if bid > h1_ema:
+                    h1_trend_status = f"BULLISH (Bid {bid:.1f} > EMA50 {h1_ema:.1f})"
+                    if decision.direction < 0:
+                        h1_trend_passed = False
+                        h1_val_str = f"Short Blocked (Bid > H1 EMA50 {h1_ema:.1f})"
                     else:
-                        h1_trend_status = f"BEARISH (Bid {bid:.1f} < EMA50 {h1_ema:.1f})"
-                        if decision.direction > 0:
-                            h1_trend_passed = False
-                            h1_val_str = f"Long Blocked (Bid < H1 EMA50 {h1_ema:.1f})"
-                        else:
-                            h1_val_str = f"Short Aligned (Bid < H1 EMA50 {h1_ema:.1f})"
+                        h1_val_str = f"Long Aligned (Bid > H1 EMA50 {h1_ema:.1f})"
+                else:
+                    h1_trend_status = f"BEARISH (Bid {bid:.1f} < EMA50 {h1_ema:.1f})"
+                    if decision.direction > 0:
+                        h1_trend_passed = False
+                        h1_val_str = f"Long Blocked (Bid < H1 EMA50 {h1_ema:.1f})"
+                    else:
+                        h1_val_str = f"Short Aligned (Bid < H1 EMA50 {h1_ema:.1f})"
         except Exception:
             pass
 

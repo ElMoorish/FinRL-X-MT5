@@ -219,8 +219,18 @@ class ExpertProphet:
         """
         Detect potential regime change: current price outside 90% CI of forecast.
         Returns True if anomaly detected (current price statistically rare).
+
+        Note: This method is available for future integration into the Council's
+        live loop as an emergency circuit-breaker. Currently not called by default.
+        Requires TimesFM to be installed — returns False gracefully if unavailable.
         """
         self._ensure_loaded()
+
+        # Guard: analytical fallback does not support this check
+        if self._model is None:
+            logger.debug("detect_regime_change: TimesFM unavailable — returning False")
+            return False
+
         close = features["close"].to_numpy().astype(np.float32)
 
         # Forecast from `lookback` bars ago

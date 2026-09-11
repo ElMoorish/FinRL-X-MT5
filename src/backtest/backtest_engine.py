@@ -32,6 +32,8 @@ class SimulatedTrade:
     sl: float = 0.0
     tp: float = 0.0
     exit_reason: str = ""
+    breakeven_armed: bool = False  # True once SL moved to entry + buffer
+    initial_sl: float = 0.0       # Original SL for 1R distance calculation
 
 
 class BacktestEngine:
@@ -127,6 +129,24 @@ class BacktestEngine:
                     equity = balance
                     closed_trades.append(active_trade)
                     active_trade = None
+                else:
+                    # ── GAP-X7 Fix: Breakeven management ───────────────────────────
+                    # Mirrors live executor: once floating P&L >= 1R, move SL
+                    # to entry + buffer (protecting the trade from full loss).
+                    if not active_trade.breakeven_armed and active_trade.initial_sl > 0:
+                        initial_risk  = abs(active_trade.entry_price - active_trade.initial_sl)
+                        floating_pts  = (close_p - active_trade.entry_price) * active_trade.direction
+                        if floating_pts >= initial_risk:   # price moved +1R
+                            be_buffer = point  # move SL to entry + 1 point buffer
+                            if active_trade.direction > 0:
+                                active_trade.sl = active_trade.entry_price + be_buffer
+                            else:
+                                active_trade.sl = active_trade.entry_price - be_buffer
+                            active_trade.breakeven_armed = True
+                            logger.debug(
+                                f"BE armed [{active_trade.symbol}]: SL moved to "
+                                f"{active_trade.sl:.2f} (+1R at {close_p:.2f})"
+                            )
 
             # 2. Council Evaluation
             decision: TradingDecision = council.evaluate(symbol, window)
@@ -151,6 +171,7 @@ class BacktestEngine:
                     volume=vol,
                     sl=decision.sl_price or 0.0,
                     tp=decision.tp_price or 0.0,
+                    initial_sl=decision.sl_price or 0.0,  # preserve original for BE calc
                 )
 
             # Calculate floating PnL if trade open

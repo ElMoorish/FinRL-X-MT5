@@ -32,6 +32,7 @@ from src.config.settings import settings
 from src.data.mt5_tick_fetcher import MT5TickFetcher
 from src.data.yahoo_fetcher import YahooFetcher
 from src.data.tick_feature_engineer import TickFeatureEngineer
+from src.data.data_store import DataStore
 
 
 class CorrelationFuser:
@@ -82,6 +83,18 @@ class CorrelationFuser:
             f"{date_from.date()} → {date_to.date()}"
         )
 
+        # ── Cache check (GAP-X1 fix) ──────────────────────────────────────────
+        # Check DataStore before issuing any MT5 / Yahoo API calls.
+        # Cache key is (symbol, date_from, date_to) — same as DataStore schema.
+        store  = DataStore()
+        cached = store.load_tick_features(symbol, date_from, date_to)
+        if cached is not None and not cached.is_empty():
+            logger.info(
+                f"  📂 Cache hit: {len(cached):,} fused bars for {symbol} "
+                f"— skipping MT5/Yahoo fetch"
+            )
+            return cached
+
         # ── Step 1: MT5 Features (Ticks or OHLCV) ─────────────────────────────
         ticks = self.tick_fetcher.get_ticks_range(symbol, date_from, date_to)
         if not ticks.is_empty():
@@ -126,6 +139,13 @@ class CorrelationFuser:
             f"  🎯 Fused feature matrix: {len(fused)} bars × "
             f"{len(fused.columns)} features"
         )
+
+        # ── Persist to cache (GAP-X1 fix) ────────────────────────────────────
+        try:
+            store.save_tick_features(symbol, fused, date_from, date_to)
+        except Exception as e:
+            logger.warning(f"DataStore cache write failed ({e}) — continuing without cache")
+
         return fused
 
     def build_multi_symbol_store(

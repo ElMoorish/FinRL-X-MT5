@@ -35,7 +35,13 @@ class RiskManager:
             self._last_day = today
             logger.info(f"RiskManager: New day initialized. Daily benchmark equity: ${current_equity:,.2f}")
 
-    def validate_trade(self, decision: TradingDecision) -> tuple[bool, str]:
+    def validate_trade(
+        self,
+        decision: TradingDecision,
+        lots: Optional[float] = None,
+        entry_price: Optional[float] = None,
+        sl_price: Optional[float] = None,
+    ) -> tuple[bool, str]:
         """
         Validate whether an intended trade complies with all risk guidelines.
 
@@ -108,19 +114,55 @@ class RiskManager:
                 return False, f"Correlated US index limit reached ({active_us_index_trades} active positions in same direction)"
 
         # 7. H1 Macro Trend Governor: block counter-trend trades against H1 EMA 50
+        h1_ema, bid = RiskManager.get_h1_trend(symbol)
+        if h1_ema is not None and bid is not None:
+            if decision.direction > 0 and bid < h1_ema:
+                return False, f"H1 Macro Trend Governor: Long blocked (Bid {bid:.2f} < H1 EMA50 {h1_ema:.2f})"
+            if decision.direction < 0 and bid > h1_ema:
+                return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
+
+        # 8. Strict Monetary Risk Budget Enforcement
+        if lots is not None and lots > 0:
+            eff_sl = sl_price if sl_price is not None else decision.sl_price
+            if eff_sl and eff_sl > 0 and entry_price and entry_price > 0 and acc.equity > 0:
+                contract_size = info.trade_contract_size if hasattr(info, "trade_contract_size") else spec.get("contract_size", 1.0)
+                sl_dist = abs(entry_price - eff_sl)
+                monetary_risk = lots * sl_dist * contract_size
+                max_risk_pct = getattr(self.cfg, "default_risk_pct", 0.005)
+                max_allowed_risk = acc.equity * max_risk_pct * 1.30
+                if monetary_risk > max_allowed_risk:
+                    return False, (
+                        f"Monetary risk ceiling exceeded: ${monetary_risk:.2f} > "
+                        f"${max_allowed_risk:.2f} ({max_risk_pct:.2%} max budget on ${acc.equity:,.2f} equity)"
+                    )
+
+        return True, "Approved"
+
+    # ─── Shared Utilities ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def get_h1_trend(symbol: str) -> tuple[float | None, float | None]:
+        """
+        Single source of truth for the H1 EMA50 macro trend check.
+
+        Returns (h1_ema, current_bid) if data is available, else (None, None).
+        Both the trade validator (Rule 7) and the CoT generator call this method
+        to guarantee a consistent result from the same computation path.
+
+        Returns
+        -------
+        tuple[float | None, float | None]
+            (h1_ema50, bid_price)  — both None if MT5 data unavailable
+        """
         try:
             h1_rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 60)
             if h1_rates is not None and len(h1_rates) >= 50:
                 import pandas as pd
                 h1_closes = pd.Series([r[4] for r in h1_rates])
-                h1_ema = float(h1_closes.ewm(span=50, adjust=False).mean().iloc[-1])
+                h1_ema    = float(h1_closes.ewm(span=50, adjust=False).mean().iloc[-1])
                 tick = mt5.symbol_info_tick(symbol)
-                bid = tick.bid if tick else float(h1_closes.iloc[-1])
-                if decision.direction > 0 and bid < h1_ema:
-                    return False, f"H1 Macro Trend Governor: Long blocked (Bid {bid:.2f} < H1 EMA50 {h1_ema:.2f})"
-                if decision.direction < 0 and bid > h1_ema:
-                    return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
+                bid  = tick.bid if tick else float(h1_closes.iloc[-1])
+                return h1_ema, bid
         except Exception as e:
-            logger.debug(f"H1 Trend filter check skipped: {e}")
-
-        return True, "Approved"
+            logger.debug(f"get_h1_trend ({symbol}): {e}")
+        return None, None

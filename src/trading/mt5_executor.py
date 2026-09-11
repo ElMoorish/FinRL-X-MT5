@@ -8,6 +8,7 @@ Implements pre-trade risk checks before every order.
 from __future__ import annotations
 
 from typing import Optional
+import math
 import time
 
 import MetaTrader5 as mt5
@@ -58,29 +59,55 @@ class MT5Executor:
             logger.debug(f"⏭  Skipping non-tradeable decision: {decision}")
             return None
 
-        # 2. Pre-trade risk checks
-        if not self._pre_trade_checks(symbol, equity, decision):
+        # 2. Get current price and sanitize SL/TP stops upfront BEFORE lot sizing
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            logger.error(f"Cannot fetch tick for {symbol} — blocking order")
             return None
+        price = tick.ask if direction > 0 else tick.bid
 
-        # 3. Close opposite position if exists
-        self._close_opposite_position(symbol, direction)
+        sanitized_sl, sanitized_tp = self.sanitize_stops(
+            symbol=symbol,
+            direction=direction,
+            price=price,
+            sl=decision.sl_price,
+            tp=decision.tp_price,
+        )
 
-        # 4. Compute lot size
-        lots = self._compute_lots(symbol, decision, equity)
+        # 3. Compute lot size based on SANITIZED stop distance
+        lots = self._compute_lots(
+            symbol=symbol,
+            decision=decision,
+            equity=equity,
+            entry_price=price,
+            sl_price=sanitized_sl,
+        )
         if lots is None or lots <= 0:
             return None
 
-        # 5. Get current price and compute SL/TP
-        tick    = mt5.symbol_info_tick(symbol)
-        price   = tick.ask if direction > 0 else tick.bid
-        sl_pips = abs(price - decision.sl_price) if decision.sl_price else 0
-        tp_pips = abs(decision.tp_price - price) if decision.tp_price else 0
+        # 4. Pre-trade risk checks (including strict monetary risk budget validation)
+        if not self._pre_trade_checks(
+            symbol=symbol,
+            equity=equity,
+            decision=decision,
+            lots=lots,
+            entry_price=price,
+            sl_price=sanitized_sl,
+        ):
+            return None
+
+        # 5. Close opposite position if exists
+        self._close_opposite_position(symbol, direction)
 
         # 6. Build and send order request
         request = self._build_request(
-            symbol, direction, lots, price,
-            decision.sl_price, decision.tp_price,
-            comment=f"Council|{decision.regime}|{decision.consensus_signal:.2f}"
+            symbol=symbol,
+            direction=direction,
+            lots=lots,
+            price=price,
+            sl=sanitized_sl,
+            tp=sanitized_tp,
+            comment=f"Council|{decision.regime}|{decision.consensus_signal:.2f}",
         )
 
         result = mt5.order_send(request)
@@ -95,8 +122,8 @@ class MT5Executor:
             )
             return None
 
-        actual_sl = request.get("sl", decision.sl_price)
-        actual_tp = request.get("tp", decision.tp_price)
+        actual_sl = request.get("sl", sanitized_sl)
+        actual_tp = request.get("tp", sanitized_tp)
         logger.info(
             f"✅ Order executed: {symbol} | "
             f"{'BUY' if direction > 0 else 'SELL'} {lots} lots @ {price:.5f} | "
@@ -129,10 +156,23 @@ class MT5Executor:
 
     # ─── Pre-Trade Checks ────────────────────────────────────────────────────
 
-    def _pre_trade_checks(self, symbol: str, equity: float, decision: Optional[TradingDecision] = None) -> bool:
+    def _pre_trade_checks(
+        self,
+        symbol: str,
+        equity: float,
+        decision: Optional[TradingDecision] = None,
+        lots: Optional[float] = None,
+        entry_price: Optional[float] = None,
+        sl_price: Optional[float] = None,
+    ) -> bool:
         """Run all pre-trade safety checks. Returns False to block order."""
         if self._risk_mgr is not None and decision is not None:
-            ok, reason = self._risk_mgr.validate_trade(decision)
+            ok, reason = self._risk_mgr.validate_trade(
+                decision,
+                lots=lots,
+                entry_price=entry_price,
+                sl_price=sl_price,
+            )
             if not ok:
                 logger.warning(f"⛔ RiskManager blocked {symbol}: {reason}")
                 return False
@@ -265,15 +305,66 @@ class MT5Executor:
                             if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                                 logger.info(f"🛡️ Breakeven activated for SELL #{pos.ticket} on {symbol} | New SL={new_sl}")
 
+    def sanitize_stops(
+        self,
+        symbol: str,
+        direction: int,
+        price: float,
+        sl: Optional[float],
+        tp: Optional[float],
+    ) -> tuple[Optional[float], Optional[float]]:
+        """
+        Dynamically validate and sanitize stops against broker trade_stops_level,
+        index breathing room buffer, tick size, and order direction.
+        """
+        info = mt5.symbol_info(symbol)
+        tick = mt5.symbol_info_tick(symbol)
+        if not info or not tick:
+            return sl, tp
+
+        broker_stop_pts = max(info.trade_stops_level, 20) * info.point
+        is_index = any(idx in symbol.upper() for idx in ["NAS100", "USTEC", "US30", "SPX", "GER40"])
+        min_stop_pts = max(broker_stop_pts, 60.0 if is_index else broker_stop_pts)
+        tick_size = info.trade_tick_size if info.trade_tick_size > 0 else info.point
+
+        sanitized_sl = sl
+        sanitized_tp = tp
+
+        if direction > 0:  # BUY: SL below Bid, TP above Bid
+            if sl and sl > 0:
+                sl_dist = abs(sl - price)
+                raw_sl = min(tick.bid - max(sl_dist, min_stop_pts), tick.bid - min_stop_pts)
+                sanitized_sl = round(round(raw_sl / tick_size) * tick_size, info.digits)
+            if tp and tp > 0:
+                tp_dist = abs(tp - price)
+                raw_tp = max(tick.bid + max(tp_dist, min_stop_pts * 1.5), tick.bid + min_stop_pts)
+                sanitized_tp = round(round(raw_tp / tick_size) * tick_size, info.digits)
+
+        elif direction < 0:  # SELL: SL above Ask, TP below Ask
+            if sl and sl > 0:
+                sl_dist = abs(sl - price)
+                raw_sl = max(tick.ask + max(sl_dist, min_stop_pts), tick.ask + min_stop_pts)
+                sanitized_sl = round(round(raw_sl / tick_size) * tick_size, info.digits)
+            if tp and tp > 0:
+                tp_dist = abs(price - tp)
+                raw_tp = min(tick.ask - max(tp_dist, min_stop_pts * 1.5), tick.ask - min_stop_pts)
+                sanitized_tp = round(round(raw_tp / tick_size) * tick_size, info.digits)
+
+        return sanitized_sl, sanitized_tp
+
     def _compute_lots(
         self,
         symbol: str,
         decision: TradingDecision,
         equity: float,
+        entry_price: Optional[float] = None,
+        sl_price: Optional[float] = None,
     ) -> Optional[float]:
         """Compute lot size from decision position_size and equity."""
         if self._lot_sizer is not None:
-            return self._lot_sizer.calculate_lots(symbol, decision, equity)
+            return self._lot_sizer.calculate_lots(
+                symbol, decision, equity, entry_price=entry_price, sl_price=sl_price
+            )
 
         inst_cfg = self.cfg.instrument_config.get(symbol, {})
         if not inst_cfg:
@@ -281,19 +372,22 @@ class MT5Executor:
             return None
 
         info  = mt5.symbol_info(symbol)
-        tick  = mt5.symbol_info_tick(symbol)
-        price = tick.ask
+        contract_size = inst_cfg.get("contract_size", info.trade_contract_size if info else 1.0)
+        price = entry_price or (mt5.symbol_info_tick(symbol).ask if mt5.symbol_info_tick(symbol) else 1.0)
 
-        # Dollar at risk = equity × risk% × position_size_scalar
+        # Monetary risk calculation
         dollar_risk = equity * self.cfg.default_risk_pct * decision.position_size
-        lot_raw     = dollar_risk / (price * inst_cfg.get("contract_size", 1) + 1e-8)
+        target_sl = sl_price if sl_price is not None else decision.sl_price
+        sl_dist = abs(price - target_sl) if target_sl and target_sl > 0 else (price * 0.01)
+        loss_per_lot = sl_dist * contract_size
+        lot_raw = dollar_risk / (loss_per_lot + 1e-8)
 
         # Round to lot step
-        step  = inst_cfg.get("lot_step", 0.01)
-        min_l = inst_cfg.get("min_lot", 0.01)
+        step  = inst_cfg.get("lot_step", info.volume_step if info else 0.01)
+        min_l = inst_cfg.get("min_lot", info.volume_min if info else 0.01)
         max_l = inst_cfg.get("max_lot", info.volume_max if info else 10.0)
 
-        lots = round(max(min_l, min(max_l, round(lot_raw / step) * step)), 2)
+        lots = round(max(min_l, min(max_l, math.floor(lot_raw / step) * step)), 2)
         return lots
 
     def _build_request(
@@ -307,7 +401,6 @@ class MT5Executor:
         comment: str = "",
     ) -> dict:
         info = mt5.symbol_info(symbol)
-        tick = mt5.symbol_info_tick(symbol)
 
         # Detect broker-supported filling mode dynamically
         filling_mode = mt5.ORDER_FILLING_IOC
@@ -332,40 +425,10 @@ class MT5Executor:
             "type_filling": filling_mode,
         }
 
-        # Dynamically validate and sanitize stops against trade_stops_level, breathing room, and direction
-        if info and tick:
-            broker_stop_pts = max(info.trade_stops_level, 20) * info.point
-            is_index = any(idx in symbol.upper() for idx in ["NAS100", "USTEC", "US30", "SPX", "GER40"])
-            min_stop_pts = max(broker_stop_pts, 60.0 if is_index else broker_stop_pts)
-            tick_size = info.trade_tick_size if info.trade_tick_size > 0 else info.point
-
-            if direction > 0:  # BUY: SL below Bid, TP above Bid
-                if sl and sl > 0:
-                    sl_dist = abs(sl - price)
-                    sanitized_sl = min(tick.bid - max(sl_dist, min_stop_pts), tick.bid - min_stop_pts)
-                    sanitized_sl = round(round(sanitized_sl / tick_size) * tick_size, info.digits)
-                    request["sl"] = sanitized_sl
-                if tp and tp > 0:
-                    tp_dist = abs(tp - price)
-                    sanitized_tp = max(tick.bid + max(tp_dist, min_stop_pts * 1.5), tick.bid + min_stop_pts)
-                    sanitized_tp = round(round(sanitized_tp / tick_size) * tick_size, info.digits)
-                    request["tp"] = sanitized_tp
-
-            elif direction < 0:  # SELL: SL above Ask, TP below Ask
-                if sl and sl > 0:
-                    sl_dist = abs(sl - price)
-                    sanitized_sl = max(tick.ask + max(sl_dist, min_stop_pts), tick.ask + min_stop_pts)
-                    sanitized_sl = round(round(sanitized_sl / tick_size) * tick_size, info.digits)
-                    request["sl"] = sanitized_sl
-                if tp and tp > 0:
-                    tp_dist = abs(price - tp)
-                    sanitized_tp = min(tick.ask - max(tp_dist, min_stop_pts * 1.5), tick.ask - min_stop_pts)
-                    sanitized_tp = round(round(sanitized_tp / tick_size) * tick_size, info.digits)
-                    request["tp"] = sanitized_tp
-        else:
-            if sl and sl > 0:
-                request["sl"] = round(sl, info.digits if info else 5)
-            if tp and tp > 0:
-                request["tp"] = round(tp, info.digits if info else 5)
+        # Apply pre-sanitized stops directly to request
+        if sl is not None and sl > 0:
+            request["sl"] = round(sl, info.digits if info else 5)
+        if tp is not None and tp > 0:
+            request["tp"] = round(tp, info.digits if info else 5)
 
         return request
