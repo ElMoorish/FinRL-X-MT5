@@ -40,11 +40,13 @@ class RecapGenerator:
         self,
         date: Optional[datetime] = None,
         symbol: Optional[str] = None,
-        magic: Optional[int] = settings.mt5.magic_number,
+        magic: Optional[Any] = settings.mt5.magic_number,
         dispatch: bool = True,
+        title_suffix: Optional[str] = None,
     ) -> dict:
         """
         Generate recap for a specific day (default: today UTC, Council trades only).
+        Supports 24/7 crypto and equity market sessions.
         """
         now = datetime.now(timezone.utc)
         target_date = date or now
@@ -54,11 +56,16 @@ class RecapGenerator:
         if end_dt > now:
             end_dt = now
 
-        title = f"Daily Recap — {start_dt.strftime('%A, %B %d, %Y')}"
+        sym_tag = f"[{symbol}] " if symbol else ""
+        suffix_tag = f" ({title_suffix})" if title_suffix else ""
+        title = f"Daily Recap — {sym_tag}{start_dt.strftime('%A, %B %d, %Y')}{suffix_tag}"
         recap_data = self._compute_recap_metrics(start_dt, end_dt, symbol, magic_filter=magic, period_type="daily")
 
         if dispatch:
-            self._dispatch_recap(recap_data, title, period_label=start_dt.strftime("%Y-%m-%d"))
+            period_label = start_dt.strftime("%Y-%m-%d")
+            if symbol:
+                period_label += f"_{symbol}"
+            self._dispatch_recap(recap_data, title, period_label=period_label)
 
         return recap_data
 
@@ -66,11 +73,14 @@ class RecapGenerator:
         self,
         weeks_back: int = 0,
         symbol: Optional[str] = None,
-        magic: Optional[int] = settings.mt5.magic_number,
+        magic: Optional[Any] = settings.mt5.magic_number,
         dispatch: bool = True,
+        title_suffix: Optional[str] = None,
     ) -> dict:
         """
         Generate recap for the current or past week (Monday to Sunday UTC, Council trades only).
+        For BTCUSD/Crypto, triggered Sunday Midnight covering the full 7-day 24/7 cycle.
+        For NAS100/Equities, triggered Friday 21:55 UTC covering the 5-day market cycle.
         """
         now = datetime.now(timezone.utc)
         # Monday of target week
@@ -80,11 +90,16 @@ class RecapGenerator:
         if end_dt > now:
             end_dt = now
 
-        title = f"Weekly Recap — Week {start_dt.strftime('%W')} ({start_dt.strftime('%b %d')} → {end_dt.strftime('%b %d, %Y')})"
+        sym_tag = f"[{symbol}] " if symbol else ""
+        suffix_tag = f" ({title_suffix})" if title_suffix else ""
+        title = f"Weekly Recap — {sym_tag}Week {start_dt.strftime('%W')} ({start_dt.strftime('%b %d')} → {end_dt.strftime('%b %d, %Y')}){suffix_tag}"
         recap_data = self._compute_recap_metrics(start_dt, end_dt, symbol, magic_filter=magic, period_type="weekly")
 
         if dispatch:
-            self._dispatch_recap(recap_data, title, period_label=f"Week_{start_dt.strftime('%Y_W%W')}")
+            period_label = f"Week_{start_dt.strftime('%Y_W%W')}"
+            if symbol:
+                period_label += f"_{symbol}"
+            self._dispatch_recap(recap_data, title, period_label=period_label)
 
         return recap_data
 
@@ -110,10 +125,17 @@ class RecapGenerator:
             for d in deals:
                 # DEAL_ENTRY_OUT (1) = trade close deal
                 if d.entry == mt5.DEAL_ENTRY_OUT:
-                    if symbol_filter and d.symbol != symbol_filter:
-                        continue
-                    if magic_filter is not None and d.magic != magic_filter:
-                        continue
+                    if symbol_filter:
+                        sym_base = symbol_filter.split('.')[0]
+                        d_base = d.symbol.split('.')[0]
+                        if d.symbol != symbol_filter and d_base != sym_base:
+                            continue
+                    if magic_filter is not None:
+                        if isinstance(magic_filter, (list, tuple, set)):
+                            if d.magic not in magic_filter:
+                                continue
+                        elif d.magic != magic_filter:
+                            continue
                     closed_deals.append(d)
 
         acc = mt5.account_info()

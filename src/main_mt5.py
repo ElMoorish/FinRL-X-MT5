@@ -66,10 +66,20 @@ def cmd_train(args):
     else:
         symbols = [args.symbol]
 
-    days      = args.days
+    if getattr(args, "start", None) and getattr(args, "end", None):
+        date_from = datetime.strptime(args.start, "%Y-%m-%d")
+        date_to   = datetime.strptime(args.end,   "%Y-%m-%d")
+        days      = (date_to - date_from).days
+    elif getattr(args, "start", None):
+        date_from = datetime.strptime(args.start, "%Y-%m-%d")
+        date_to   = datetime.now()
+        days      = (date_to - date_from).days
+    else:
+        days      = args.days
+        date_to   = datetime.now()
+        date_from = date_to - timedelta(days=days)
+
     timesteps = getattr(args, "timesteps", 50000)
-    date_to   = datetime.now()
-    date_from = date_to - timedelta(days=days)
 
     logger.info(f"🏛️ Convening Council Training Batch for {len(symbols)} symbols: {symbols}")
     logger.info(f"   Period: {date_from.date()} → {date_to.date()} ({days} days) | DRL steps: {timesteps:,}")
@@ -138,7 +148,8 @@ def cmd_live(args):
     from src.trading.recap_generator import RecapGenerator
     recap_gen = RecapGenerator()
     last_daily_recap_date = ""
-    last_weekly_recap_week = ""
+    last_weekly_equity_week = ""
+    last_weekly_crypto_week = ""
 
     with MT5TickFetcher() as fetcher:
         fuser = CorrelationFuser(tick_fetcher=fetcher)
@@ -190,12 +201,14 @@ def cmd_live(args):
                 except Exception as e:
                     logger.error(f"Error processing {symbol}: {e}")
 
-            # ─── Automated Daily & Weekly Performance Recap ────────────────────────
+            # ─── Automated Daily & Weekly Performance Recap (Asset-Class Aware) ───
             now_utc = datetime.now(timezone.utc)
             today_str = now_utc.strftime("%Y-%m-%d")
             week_str = now_utc.strftime("%Y_W%W")
+            is_friday = (now_utc.weekday() == 4)
+            is_sunday = (now_utc.weekday() == 6)
 
-            # Daily Recap at 23:55 UTC
+            # 1. Daily Recap at 23:55 UTC (Dispatched across all actively traded symbols)
             if now_utc.hour == 23 and now_utc.minute >= 50 and today_str != last_daily_recap_date:
                 try:
                     logger.info("📊 Generating and dispatching automated End-of-Day Performance Recap...")
@@ -204,14 +217,29 @@ def cmd_live(args):
                 except Exception as e:
                     logger.warning(f"Automated daily recap failed: {e}")
 
-            # Weekly Recap at Friday 21:55 UTC (market close)
-            if now_utc.weekday() == 4 and now_utc.hour == 21 and now_utc.minute >= 50 and week_str != last_weekly_recap_week:
+            # 2. Equity Weekly Recap on Friday 21:55 UTC (Market Close for NAS100 / Equities)
+            has_equity = any(not any(c in s.upper() for c in ("BTC", "ETH", "CRYPTO")) for s in symbols)
+            if has_equity and is_friday and now_utc.hour == 21 and now_utc.minute >= 50 and week_str != last_weekly_equity_week:
                 try:
-                    logger.info("📊 Generating and dispatching automated Weekly Performance Recap...")
-                    recap_gen.generate_weekly_recap()
-                    last_weekly_recap_week = week_str
+                    logger.info("📊 Generating and dispatching automated Weekly Performance Recap for NAS100 / Equities (Friday Close)...")
+                    eq_syms = [s for s in symbols if not any(c in s.upper() for c in ("BTC", "ETH", "CRYPTO"))]
+                    target_eq = eq_syms[0] if len(eq_syms) == 1 else None
+                    recap_gen.generate_weekly_recap(symbol=target_eq, title_suffix="5-Day Equity Market Close")
+                    last_weekly_equity_week = week_str
                 except Exception as e:
-                    logger.warning(f"Automated weekly recap failed: {e}")
+                    logger.warning(f"Automated equity weekly recap failed: {e}")
+
+            # 3. Crypto Weekly Recap on Sunday Midnight 23:55 UTC (7-Day 24/7 Cycle for BTCUSD)
+            has_crypto = any(any(c in s.upper() for c in ("BTC", "ETH", "CRYPTO")) for s in symbols)
+            if has_crypto and is_sunday and now_utc.hour == 23 and now_utc.minute >= 50 and week_str != last_weekly_crypto_week:
+                try:
+                    logger.info("📊 Generating and dispatching automated Weekly Performance Recap for BTCUSD / Crypto (Sunday Midnight 24/7 Cycle)...")
+                    cr_syms = [s for s in symbols if any(c in s.upper() for c in ("BTC", "ETH", "CRYPTO"))]
+                    target_cr = cr_syms[0] if len(cr_syms) == 1 else None
+                    recap_gen.generate_weekly_recap(symbol=target_cr, title_suffix="Sunday Midnight 7-Day Crypto Cycle")
+                    last_weekly_crypto_week = week_str
+                except Exception as e:
+                    logger.warning(f"Automated crypto weekly recap failed: {e}")
 
             # Sleep precisely until the next M5 bar close (plus 1.5s buffer)
             now = datetime.now()
@@ -388,6 +416,8 @@ def main():
     p_train.add_argument("--symbols", nargs="+", help="Multiple MT5 symbols to train in sequence")
     p_train.add_argument("--all-symbols", action="store_true", help="Train all symbols configured in settings")
     p_train.add_argument("--days",   type=int, default=90, help="Training history in days")
+    p_train.add_argument("--start",  default=None, help="Start date (YYYY-MM-DD)")
+    p_train.add_argument("--end",    default=None, help="End date (YYYY-MM-DD)")
     p_train.add_argument("--timesteps", type=int, default=50000, help="DRL timesteps per instrument")
 
     # live
