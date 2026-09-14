@@ -79,3 +79,7 @@ web/
 # Local GitHub Wiki Git Sub-Clone
 .wiki_repo/
 
+
+# Unpublished Drafts & Marketing Copy (Confidential / Local-Only)
+docs/MEDIUM_ARTICLE_*.md
+docs/articles/
