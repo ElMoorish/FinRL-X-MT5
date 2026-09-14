@@ -105,6 +105,31 @@ class TradeNotifier:
             daemon=True,
         ).start()
 
+    def notify_partial_tp(
+        self,
+        symbol: str,
+        ticket: int,
+        volume_closed: float,
+        price: float,
+        locked_profit: float,
+        remaining_sl: float,
+        direction: int,
+    ) -> None:
+        """
+        Triggered when a position is partially closed at TP1 (+1.25R) and remaining SL moved to Breakeven.
+        """
+        if not self.enabled:
+            return
+
+        if not self.has_discord and not self.has_telegram:
+            return
+
+        threading.Thread(
+            target=self._send_partial_tp_worker,
+            args=(symbol, ticket, volume_closed, price, locked_profit, remaining_sl, direction),
+            daemon=True,
+        ).start()
+
     # ─── Workers ─────────────────────────────────────────────────────────────
 
     def _send_trade_signals_worker(
@@ -220,6 +245,65 @@ class TradeNotifier:
                 self._http_post(self.discord_url, discord_payload)
             except Exception as e:
                 logger.warning(f"Discord close alert failed: {e}")
+
+    def _send_partial_tp_worker(
+        self,
+        symbol: str,
+        ticket: int,
+        volume_closed: float,
+        price: float,
+        locked_profit: float,
+        remaining_sl: float,
+        direction: int,
+    ) -> None:
+        side_str = "BUY" if direction > 0 else "SELL"
+        side_emoji = "🟢" if direction > 0 else "🔴"
+
+        # 1. Telegram
+        if self.has_telegram:
+            try:
+                tg_url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+                msg = (
+                    f"🎯 <b>PARTIAL TAKE-PROFIT SECURED (TP1)</b>\n\n"
+                    f"<b>Asset:</b> <code>{symbol}</code>\n"
+                    f"<b>Ticket:</b> #{ticket}\n"
+                    f"<b>Direction:</b> {side_emoji} {side_str}\n"
+                    f"<b>Closed Volume:</b> {volume_closed:.2f} lots (50% scale-out)\n"
+                    f"<b>Exit Price:</b> <code>{price:.5f}</code>\n"
+                    f"<b>Realized Profit:</b> +${locked_profit:.2f}\n"
+                    f"<b>Risk Status:</b> 🛡️ <b>100% Risk-Free (SL moved to BE: {remaining_sl:.5f})</b>\n"
+                    f"<i>Dynamic ATR Trailing Stop activated for runner.</i>"
+                )
+                self._http_post(tg_url, {"chat_id": self.tg_chat_id, "text": msg, "parse_mode": "HTML"})
+            except Exception as e:
+                logger.warning(f"Telegram partial TP alert failed: {e}")
+
+        # 2. Discord
+        if self.has_discord:
+            try:
+                discord_payload = {
+                    "username": "FinRL-X Trading Council",
+                    "avatar_url": "https://raw.githubusercontent.com/ElMoorish/FinRL-X-MT5/main/docs/assets/finrl_x_icon.png",
+                    "embeds": [
+                        {
+                            "title": f"🎯 Partial Take-Profit Executed: #{ticket} ({symbol})",
+                            "description": (
+                                f"**50% Position Scaled Out at +1.25R**\n"
+                                f"• **Direction:** {side_emoji} {side_str}\n"
+                                f"• **Closed Lots:** `{volume_closed:.2f}`\n"
+                                f"• **Execution Price:** `{price:.5f}`\n"
+                                f"• **Realized Profit:** `+${locked_profit:.2f}`\n"
+                                f"• **Remaining Stop:** `🛡️ BE @ {remaining_sl:.5f}` (Risk-Free)\n"
+                                f"• **Trailing Mode:** Chandelier Dynamic ATR Active"
+                            ),
+                            "color": 0xF1C40F,  # Gold/Yellow
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    ],
+                }
+                self._http_post(self.discord_url, discord_payload)
+            except Exception as e:
+                logger.warning(f"Discord partial TP alert failed: {e}")
 
     # ─── HTTP Utilities ───────────────────────────────────────────────────────
 

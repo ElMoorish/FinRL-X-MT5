@@ -60,14 +60,34 @@ class TradingDecision:
         return self.council_confidence
     @property
     def is_tradeable(self) -> bool:
-        """High Conviction Thresholds: conf >= 0.70, |sig| >= 0.20, dual RR."""
-        min_rr = 1.50 if self.direction > 0 else 0.50
-        return (
-            abs(self.consensus_signal) >= 0.20
-            and self.council_confidence >= 0.70
-            and self.expected_rr >= min_rr
-            and self.direction != 0
-        )
+        """
+        Phase 3: Dynamic Regime-Aware Asymmetric Gating.
+        - BULL Regime: Trend Longs require |sig| >= 0.28, conf >= 0.70, RR >= 2.00.
+                       Counter Shorts require extreme conviction |sig| >= 0.45, conf >= 0.80, RR >= 2.50.
+        - BEAR Regime: Trend Shorts require |sig| >= 0.28, conf >= 0.70, RR >= 2.00.
+                       Counter Longs require extreme conviction |sig| >= 0.45, conf >= 0.80, RR >= 2.50.
+        - SIDEWAYS:    Mean reversion/chop requires |sig| >= 0.35, conf >= 0.75, RR >= 2.20.
+        """
+        if self.direction == 0:
+            return False
+
+        regime = str(self.regime).upper()
+        sig = self.consensus_signal
+        conf = self.council_confidence
+        rr = self.expected_rr
+
+        if regime == "BULL":
+            if self.direction > 0:  # Trend continuation Long
+                return sig >= 0.28 and conf >= 0.70 and rr >= 2.00
+            else:                   # Counter-trend Short
+                return sig <= -0.45 and conf >= 0.80 and rr >= 2.50
+        elif regime == "BEAR":
+            if self.direction < 0:  # Trend continuation Short
+                return sig <= -0.28 and conf >= 0.70 and rr >= 2.00
+            else:                   # Counter-trend Long
+                return sig >= 0.45 and conf >= 0.80 and rr >= 2.50
+        else:  # SIDEWAYS / UNKNOWN
+            return abs(sig) >= 0.35 and conf >= 0.75 and rr >= 2.20
 
     def __repr__(self) -> str:
         dir_str = "LONG" if self.direction > 0 else "SHORT" if self.direction < 0 else "FLAT"
@@ -153,7 +173,8 @@ class Council:
 
         # ── Build Validation Signal Matrix ────────────────────────────────────
         logger.info("📊 [4/4] Optimizing Council Gate (NSGA-III)...")
-        val_signals, val_returns = self._build_signal_matrix(val_df, symbol)
+        gate_val = val_df[-1500:] if len(val_df) > 1500 else val_df
+        val_signals, val_returns = self._build_signal_matrix(gate_val, symbol)
 
         # ── Run NSGA-III Gate ─────────────────────────────────────────────────
         self.gate.optimize(val_signals, val_returns)
@@ -229,6 +250,7 @@ class Council:
         self,
         features: pl.DataFrame,
         symbol: str,
+        verbose: bool = True,
     ) -> TradingDecision:
         """
         Make a trading decision for the current bar.
@@ -351,7 +373,8 @@ class Council:
             expert_weights = self.gate.optimal_weights.tolist(),
         )
 
-        logger.info(f"🏛️ {decision}")
+        if verbose:
+            logger.info(f"🏛️ {decision}")
         return decision
 
     # ─── Persistence ─────────────────────────────────────────────────────────
@@ -378,13 +401,13 @@ class Council:
         logger.info(f"🏛️ Council loaded for {symbol} ← {base}")
         return self
 
-    def evaluate(self, symbol: str, features: pl.DataFrame | pd.DataFrame) -> TradingDecision:
+    def evaluate(self, symbol: str, features: pl.DataFrame | pd.DataFrame, verbose: bool = False) -> TradingDecision:
         """Convenience wrapper for decide() accepting either Polars or Pandas."""
         if hasattr(features, "to_pandas"):
             feat_pl = features
         else:
             feat_pl = pl.from_pandas(features)
-        return self.decide(feat_pl, symbol=symbol)
+        return self.decide(feat_pl, symbol=symbol, verbose=verbose)
 
     def fit(self, symbol: str, features: pl.DataFrame | pd.DataFrame) -> "Council":
         """Convenience wrapper for train() accepting either Polars or Pandas."""

@@ -88,15 +88,10 @@ class MT5LotSizer:
         else:
             sl_dist = max(abs(entry_price - target_sl), min_stop_pts)
 
-        # 2. Risk capital in USD (Strict 0.50% hard dollar ceiling)
+        # 2. Risk capital in USD (Fixed risk per trade based on default_risk_pct)
         base_risk_pct = self.cfg.default_risk_pct
         max_risk_usd = equity * base_risk_pct
-
-        # 3. Half-Kelly scaling by Council confidence
-        # Scales risk DOWN on lower confidence (min 0.5x), but strictly CAPPED at 1.0x (never exceeds 0.50%)
-        confidence = max(0.1, min(1.0, decision.confidence))
-        kelly_factor = min(1.0, 0.5 + (confidence * 0.5))  # Range [0.55, 1.00]
-        adjusted_risk_usd = min(max_risk_usd, max_risk_usd * kelly_factor)
+        adjusted_risk_usd = max_risk_usd  # Strict fixed risk per trade (no conviction downscaling)
 
         # 4. Compute raw volume
         # Monetary loss for 1 standard lot = sl_dist * contract_size

@@ -7,10 +7,13 @@ Implements pre-trade risk checks before every order.
 
 from __future__ import annotations
 
-from typing import Optional
+from pathlib import Path
+import json
 import math
 import time
+from typing import Optional
 
+import numpy as np
 import MetaTrader5 as mt5
 from loguru import logger
 
@@ -38,6 +41,46 @@ class MT5Executor:
         self._lot_sizer = lot_sizer or MT5LotSizer()
         self._risk_mgr  = risk_manager or RiskManager()
         self._notifier  = notifier or TradeNotifier()
+        self._position_state_path = Path("data") / "cache" / "active_positions_state.json"
+        self._position_state: dict = self._load_position_state()
+
+    def _load_position_state(self) -> dict:
+        try:
+            if self._position_state_path.exists():
+                with open(self._position_state_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except Exception as e:
+            logger.debug(f"Could not load position state: {e}")
+        return {}
+
+    def _save_position_state(self) -> None:
+        try:
+            self._position_state_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._position_state_path, "w", encoding="utf-8") as f:
+                json.dump(self._position_state, f, indent=2)
+        except Exception as e:
+            logger.debug(f"Could not save position state: {e}")
+
+    def _compute_atr(self, symbol: str, period: int = 14) -> float:
+        """Compute rolling ATR for trailing stop calculation."""
+        try:
+            rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, period + 5)
+            if rates is not None and len(rates) >= period:
+                highs = rates["high"]
+                lows = rates["low"]
+                closes = rates["close"]
+                tr_list = []
+                for i in range(1, len(rates)):
+                    h, l, pc = highs[i], lows[i], closes[i - 1]
+                    tr = max(h - l, abs(h - pc), abs(l - pc))
+                    tr_list.append(tr)
+                if tr_list:
+                    return float(np.mean(tr_list[-period:]))
+        except Exception as e:
+            logger.debug(f"ATR calculation fallback for {symbol}: {e}")
+        info = mt5.symbol_info(symbol)
+        pt = info.point if info else 0.01
+        return 50.0 * pt
 
     # ─── Main Execute ────────────────────────────────────────────────────────
 
@@ -130,6 +173,23 @@ class MT5Executor:
             f"SL={actual_sl:.5f} | TP={actual_tp:.5f} | "
             f"Ticket={result.order}"
         )
+
+        # Register in position state for Partial TP & Trailing Stop management
+        ticket_str = str(result.order)
+        info_sym = mt5.symbol_info(symbol)
+        pt_sym = info_sym.point if info_sym else 0.01
+        init_risk = abs(price - actual_sl) if actual_sl else (price * 0.005)
+        self._position_state[ticket_str] = {
+            "symbol": symbol,
+            "direction": direction,
+            "entry_price": price,
+            "initial_sl": actual_sl,
+            "initial_risk": max(init_risk, 10.0 * pt_sym),
+            "initial_volume": lots,
+            "tp1_executed": False,
+            "peak_price": price,
+        }
+        self._save_position_state()
 
         # Dispatch real-time external alerts (Telegram / Discord)
         self._notifier.notify_trade_executed(
@@ -247,8 +307,24 @@ class MT5Executor:
                     )
 
     def manage_active_positions(self, symbol: str) -> None:
-        """Dynamic Breakeven management (+1.0R profit triggers BE lock)."""
+        """
+        Advanced Active Position Management:
+          1. Phase 1: Partial Take-Profit (50% scale-out at +1.25R, move remaining SL to BE).
+          2. Phase 2: Dynamic ATR Trailing Stop (Chandelier Exit tracking +1.5*ATR past +1.5R).
+        """
         positions = mt5.positions_get(symbol=symbol)
+        active_tickets = {str(p.ticket) for p in (positions or [])}
+
+        # Purge closed tickets for this symbol from state
+        to_purge = [
+            t for t, d in self._position_state.items()
+            if d.get("symbol") == symbol and t not in active_tickets
+        ]
+        if to_purge:
+            for t in to_purge:
+                self._position_state.pop(t, None)
+            self._save_position_state()
+
         if not positions:
             return
 
@@ -257,53 +333,185 @@ class MT5Executor:
         if not info or not tick:
             return
 
-        min_stop_pts = max(info.trade_stops_level, 20) * info.point
+        broker_stop_pts = max(info.trade_stops_level, 20) * info.point
+        is_index = any(idx in symbol.upper() for idx in ["NAS100", "USTEC", "US30", "SPX", "GER40"])
+        min_stop_pts = max(broker_stop_pts, 60.0 if is_index else broker_stop_pts)
+
+        # Retrieve per-instrument configuration parameters
+        inst_cfg = self.cfg.instrument_config.get(symbol, {})
+        tp1_r = inst_cfg.get("tp1_r", self.cfg.default_tp1_r)
+        tp1_ratio = inst_cfg.get("tp1_ratio", self.cfg.default_tp1_ratio)
+        trail_trigger_r = inst_cfg.get("trail_trigger_r", self.cfg.default_trail_trigger_r)
+        trail_atr_mult = inst_cfg.get("trail_atr_mult", self.cfg.default_trail_atr_mult)
+        min_lot = inst_cfg.get("min_lot", info.volume_min if info else 0.01)
+        lot_step = inst_cfg.get("lot_step", info.volume_step if info else 0.01)
+        contract_size = inst_cfg.get("contract_size", info.trade_contract_size if info else 1.0)
+
+        atr_val: Optional[float] = None
+        state_modified = False
 
         for pos in positions:
             if pos.magic != self.cfg.magic_number:
                 continue
 
-            open_price = pos.price_open
-            current_sl = pos.sl
-            current_tp = pos.tp
+            ticket_str = str(pos.ticket)
+            p_state = self._position_state.get(ticket_str)
+            if not p_state:
+                # Initialize state for existing untracked position
+                if pos.type == mt5.ORDER_TYPE_BUY:
+                    init_risk = pos.price_open - pos.sl if pos.sl > 0 else (pos.price_open * 0.005)
+                else:
+                    init_risk = pos.sl - pos.price_open if pos.sl > 0 else (pos.price_open * 0.005)
+                p_state = {
+                    "symbol": symbol,
+                    "direction": 1 if pos.type == mt5.ORDER_TYPE_BUY else -1,
+                    "entry_price": pos.price_open,
+                    "initial_sl": pos.sl,
+                    "initial_risk": max(init_risk, 10.0 * info.point),
+                    "initial_volume": pos.volume,
+                    "tp1_executed": False,
+                    "peak_price": pos.price_open,
+                }
+                self._position_state[ticket_str] = p_state
+                state_modified = True
 
-            if current_sl <= 0:
-                continue
+            initial_risk = p_state.get("initial_risk", 10.0 * info.point)
 
+            # Update peak favorable price
             if pos.type == mt5.ORDER_TYPE_BUY:
-                initial_risk = open_price - current_sl
-                if initial_risk > 0:
-                    profit_dist = tick.bid - open_price
-                    if profit_dist >= 1.0 * initial_risk:
-                        new_sl = round(open_price + (10.0 * info.point), info.digits)
-                        if new_sl > current_sl and (tick.bid - new_sl) >= min_stop_pts:
-                            req = {
-                                "action": mt5.TRADE_ACTION_SLTP,
-                                "position": pos.ticket,
-                                "symbol": symbol,
-                                "sl": new_sl,
-                                "tp": current_tp,
-                            }
-                            res = mt5.order_send(req)
-                            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                logger.info(f"🛡️ Breakeven activated for BUY #{pos.ticket} on {symbol} | New SL={new_sl}")
-            elif pos.type == mt5.ORDER_TYPE_SELL:
-                initial_risk = current_sl - open_price
-                if initial_risk > 0:
-                    profit_dist = open_price - tick.ask
-                    if profit_dist >= 1.0 * initial_risk:
-                        new_sl = round(open_price - (10.0 * info.point), info.digits)
-                        if new_sl < current_sl and (new_sl - tick.ask) >= min_stop_pts:
-                            req = {
-                                "action": mt5.TRADE_ACTION_SLTP,
-                                "position": pos.ticket,
-                                "symbol": symbol,
-                                "sl": new_sl,
-                                "tp": current_tp,
-                            }
-                            res = mt5.order_send(req)
-                            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                                logger.info(f"🛡️ Breakeven activated for SELL #{pos.ticket} on {symbol} | New SL={new_sl}")
+                current_price = tick.bid
+                profit_dist = current_price - pos.price_open
+                p_state["peak_price"] = max(p_state.get("peak_price", pos.price_open), current_price)
+            else:
+                current_price = tick.ask
+                profit_dist = pos.price_open - current_price
+                p_state["peak_price"] = min(p_state.get("peak_price", pos.price_open), current_price)
+            peak_price = p_state["peak_price"]
+
+            # ─── 1. Phase 1: Partial Take-Profit Scale Out (+1.25R) ───────────
+            if profit_dist >= (tp1_r * initial_risk) and not p_state.get("tp1_executed", False):
+                close_vol_raw = pos.volume * tp1_ratio
+                close_vol = round(math.floor(close_vol_raw / lot_step) * lot_step, 2)
+                rem_vol = round(pos.volume - close_vol, 2)
+
+                if close_vol >= min_lot and rem_vol >= min_lot:
+                    close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+                    req_close = {
+                        "action": mt5.TRADE_ACTION_DEAL,
+                        "position": pos.ticket,
+                        "symbol": symbol,
+                        "volume": close_vol,
+                        "type": close_type,
+                        "price": current_price,
+                        "magic": self.cfg.magic_number,
+                        "comment": f"Council TP1 50% #{pos.ticket}",
+                    }
+                    res_close = mt5.order_send(req_close)
+                    if res_close and res_close.retcode == mt5.TRADE_RETCODE_DONE:
+                        locked_cash = profit_dist * contract_size * close_vol
+                        p_state["tp1_executed"] = True
+                        state_modified = True
+                        logger.info(
+                            f"🎯 TP1 Executed: {symbol} #{pos.ticket} | "
+                            f"Closed {close_vol} lots @ {current_price:.5f} | "
+                            f"Locked +${locked_cash:.2f} | Remaining={rem_vol} lots"
+                        )
+
+                        # Move SL to Breakeven (+1 point buffer)
+                        be_buf = 5.0 * info.point
+                        new_sl = round(pos.price_open + be_buf if pos.type == mt5.ORDER_TYPE_BUY else pos.price_open - be_buf, info.digits)
+                        req_be = {
+                            "action": mt5.TRADE_ACTION_SLTP,
+                            "position": pos.ticket,
+                            "symbol": symbol,
+                            "sl": new_sl,
+                            "tp": pos.tp,
+                        }
+                        res_be = mt5.order_send(req_be)
+                        if res_be and res_be.retcode == mt5.TRADE_RETCODE_DONE:
+                            logger.info(f"🛡️ Position #{pos.ticket} SL moved to BE: {new_sl:.5f} (100% Risk-Free)")
+
+                        # Notification
+                        self._notifier.notify_partial_tp(
+                            symbol=symbol,
+                            ticket=pos.ticket,
+                            volume_closed=close_vol,
+                            price=current_price,
+                            locked_profit=locked_cash,
+                            remaining_sl=new_sl,
+                            direction=1 if pos.type == mt5.ORDER_TYPE_BUY else -1,
+                        )
+                else:
+                    # Minimum lot size cannot be split (e.g. 0.01 lot on NAS100)
+                    # Protect by locking Breakeven
+                    be_buf = 5.0 * info.point
+                    if pos.type == mt5.ORDER_TYPE_BUY:
+                        new_sl = round(pos.price_open + be_buf, info.digits)
+                        can_be = (new_sl > pos.sl) and (tick.bid - new_sl >= min_stop_pts)
+                    else:
+                        new_sl = round(pos.price_open - be_buf, info.digits)
+                        can_be = (pos.sl <= 0 or new_sl < pos.sl) and (new_sl - tick.ask >= min_stop_pts)
+
+                    if can_be:
+                        req_be = {
+                            "action": mt5.TRADE_ACTION_SLTP,
+                            "position": pos.ticket,
+                            "symbol": symbol,
+                            "sl": new_sl,
+                            "tp": pos.tp,
+                        }
+                        res_be = mt5.order_send(req_be)
+                        if res_be and res_be.retcode == mt5.TRADE_RETCODE_DONE:
+                            p_state["tp1_executed"] = True
+                            state_modified = True
+                            logger.info(f"🛡️ Breakeven armed for #{pos.ticket} on {symbol} | SL={new_sl:.5f}")
+
+            # ─── 2. Phase 2: Dynamic ATR Trailing Stop (Chandelier Exit) ──────
+            if profit_dist >= (trail_trigger_r * initial_risk) or p_state.get("tp1_executed", False):
+                if atr_val is None:
+                    atr_val = self._compute_atr(symbol, period=14)
+
+                atr_dist = trail_atr_mult * atr_val
+
+                if pos.type == mt5.ORDER_TYPE_BUY:
+                    trail_candidate = round(peak_price - atr_dist, info.digits)
+                    be_min = round(pos.price_open + (2.0 * info.point), info.digits)
+                    target_sl = max(trail_candidate, be_min)
+                    if (target_sl > pos.sl + (2.0 * info.point)) and (tick.bid - target_sl >= min_stop_pts):
+                        req_trail = {
+                            "action": mt5.TRADE_ACTION_SLTP,
+                            "position": pos.ticket,
+                            "symbol": symbol,
+                            "sl": target_sl,
+                            "tp": pos.tp,
+                        }
+                        res_trail = mt5.order_send(req_trail)
+                        if res_trail and res_trail.retcode == mt5.TRADE_RETCODE_DONE:
+                            logger.info(
+                                f"📈 Dynamic ATR Trailing SL ratcheted for BUY #{pos.ticket} on {symbol}: "
+                                f"New SL={target_sl:.5f} (Peak={peak_price:.5f}, ATR={atr_val:.2f})"
+                            )
+                else:  # SELL
+                    trail_candidate = round(peak_price + atr_dist, info.digits)
+                    be_max = round(pos.price_open - (2.0 * info.point), info.digits)
+                    target_sl = min(trail_candidate, be_max)
+                    if (pos.sl <= 0 or target_sl < pos.sl - (2.0 * info.point)) and (target_sl - tick.ask >= min_stop_pts):
+                        req_trail = {
+                            "action": mt5.TRADE_ACTION_SLTP,
+                            "position": pos.ticket,
+                            "symbol": symbol,
+                            "sl": target_sl,
+                            "tp": pos.tp,
+                        }
+                        res_trail = mt5.order_send(req_trail)
+                        if res_trail and res_trail.retcode == mt5.TRADE_RETCODE_DONE:
+                            logger.info(
+                                f"📉 Dynamic ATR Trailing SL ratcheted for SELL #{pos.ticket} on {symbol}: "
+                                f"New SL={target_sl:.5f} (Peak={peak_price:.5f}, ATR={atr_val:.2f})"
+                            )
+
+        if state_modified:
+            self._save_position_state()
 
     def sanitize_stops(
         self,

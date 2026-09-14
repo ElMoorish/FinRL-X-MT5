@@ -9,7 +9,7 @@ let chartInstance = null;
 let candleSeries = null;
 let volumeSeries = null;
 let h1EmaSeries = null;
-let activeSymbol = "NAS100.x";
+let activeSymbol = "BTCUSD.x";
 let activeTimeframe = "M5";
 let showH1Ema = true;
 let currentH1EmaVal = 0.0;
@@ -330,14 +330,17 @@ function renderDeliberation(cot) {
     document.getElementById("cotRegime").innerText = cot.regime;
     document.getElementById("cotConfidence").innerText = `${(cot.confidence * 100).toFixed(1)}%`;
     document.getElementById("cotRR").innerText = cot.expected_rr.toFixed(2);
-    document.getElementById("cotKelly").innerText = `${cot.position_size.toFixed(2)}x`;
+    document.getElementById("cotKelly").innerText = cot.risk_budget || "0.25% Fixed";
     const h1El = document.getElementById("cotH1Trend");
     if (h1El) {
-        h1El.innerText = cot.h1_trend || "ALIGNED";
-        if (cot.h1_trend && cot.h1_trend.includes("BULLISH")) {
+        const gateStatus = cot.regime_gate || cot.h1_trend || "HMM PURE";
+        h1El.innerText = gateStatus;
+        if (gateStatus.includes("BULL") || gateStatus.includes("PASS")) {
             h1El.className = "pill-value font-bold text-emerald";
-        } else if (cot.h1_trend && cot.h1_trend.includes("BEARISH")) {
+        } else if (gateStatus.includes("BEAR")) {
             h1El.className = "pill-value font-bold text-rose";
+        } else {
+            h1El.className = "pill-value font-bold text-cyan";
         }
     }
 

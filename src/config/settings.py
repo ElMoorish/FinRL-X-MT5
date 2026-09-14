@@ -49,6 +49,8 @@ class MT5Settings(BaseSettings):
             "META.x",
             "TSLA.x",
             "PLTR.x",
+            "BTCUSD.x",
+            "BTCUSDDATA",
         ],
         description="Active trading symbols matching broker naming convention",
     )
@@ -57,32 +59,41 @@ class MT5Settings(BaseSettings):
     # MT5 constants: M1=1, M5=5, M15=15, M30=30, H1=16385, H4=16388, D1=16408
     timeframe_minutes: int = Field(5, description="Bar aggregation timeframe in minutes")
 
-    # Position sizing & Prop Firm Safety Presets (High Conviction 0.50% Profile)
-    default_risk_pct: float = Field(0.0050, description="Max risk per trade as % of equity (0.0050 = 0.50% High Conviction)")
+    # Position sizing & Prop Firm Safety Presets (Conservative Weekend 0.25% Profile)
+    default_risk_pct: float = Field(0.0025, description="Max risk per trade as % of equity (0.0025 = 0.25% Weekend Robustness)")
     max_portfolio_risk_pct: float = Field(0.02, description="Max total portfolio risk % (2.0% cap)")
     max_drawdown_halt_pct: float = Field(0.05, description="Peak-to-trough Drawdown % that halts trading (5.0% hard stop)")
     max_daily_loss_pct: float = Field(0.03, description="Max daily drawdown before circuit breaker trips (3.0% daily stop)")
     min_free_margin_pct: float = Field(0.40, description="Min free margin % before blocking orders (40% free margin guard)")
 
+    # Execution & Exit Management (Partial Take-Profit & Dynamic ATR Trailing Stop)
+    default_tp1_r: float = Field(1.25, description="First Take-Profit target in multiples of initial risk R (1.25R)")
+    default_tp1_ratio: float = Field(0.50, description="Volume fraction to close at TP1 (50% scale-out)")
+    default_trail_trigger_r: float = Field(1.50, description="Profit distance in R to activate dynamic trailing stop (1.5R)")
+    default_trail_atr_mult: float = Field(1.5, description="Chandelier ATR trailing distance multiplier (1.5 × ATR)")
+    enable_h1_governor: bool = Field(False, description="Enable legacy H1 EMA50 governor (False = Pure HMM Regime Gating)")
+
     # Instrument-specific lot config (verified against broker terminal specifications)
     instrument_config: dict = Field(
         default={
-            "NAS100.x":  {"contract_size": 10.0,   "min_lot": 0.01, "max_lot": 0.04, "lot_step": 0.01, "point": 0.01,  "digits": 2},
-            "WTI.x":    {"contract_size": 100.0,  "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
-            "XAGUSD.x": {"contract_size": 5000.0, "min_lot": 0.01, "lot_step": 0.01, "point": 0.001, "digits": 3},
-            "US30.x":   {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
-            "SPX500.x": {"contract_size": 10.0,   "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.1,   "digits": 1},
-            "GER40.x":  {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 0.1,   "digits": 1},
-            "JAP225.x": {"contract_size": 100.0,  "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
-            "UK100.x":  {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
-            "AUS200.x": {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
-            "AAPL.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "NVDA.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "MSFT.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "AMZN.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "META.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "TSLA.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
-            "PLTR.x":   {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "NAS100.x":   {"contract_size": 10.0,   "min_lot": 0.01, "max_lot": 0.04, "lot_step": 0.01, "point": 0.01,  "digits": 2, "tp1_r": 1.25, "tp1_ratio": 0.50, "trail_trigger_r": 1.50, "trail_atr_mult": 1.5},
+            "BTCUSD.x":   {"contract_size": 1.0,    "min_lot": 0.01, "max_lot": 0.50, "lot_step": 0.01, "point": 0.01,  "digits": 2, "tp1_r": 1.25, "tp1_ratio": 0.50, "trail_trigger_r": 1.50, "trail_atr_mult": 1.5},
+            "BTCUSDDATA": {"contract_size": 1.0,    "min_lot": 0.01, "max_lot": 0.50, "lot_step": 0.01, "point": 0.01,  "digits": 2, "tp1_r": 1.25, "tp1_ratio": 0.50, "trail_trigger_r": 1.50, "trail_atr_mult": 1.5},
+            "WTI.x":      {"contract_size": 100.0,  "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
+            "XAGUSD.x":   {"contract_size": 5000.0, "min_lot": 0.01, "lot_step": 0.01, "point": 0.001, "digits": 3},
+            "US30.x":     {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
+            "SPX500.x":   {"contract_size": 10.0,   "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.1,   "digits": 1},
+            "GER40.x":    {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 0.1,   "digits": 1},
+            "JAP225.x":   {"contract_size": 100.0,  "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
+            "UK100.x":    {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 0.01,  "digits": 2},
+            "AUS200.x":   {"contract_size": 1.0,    "min_lot": 0.01, "lot_step": 0.01, "point": 1.0,   "digits": 0},
+            "AAPL.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "NVDA.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "MSFT.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "AMZN.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "META.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "TSLA.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
+            "PLTR.x":     {"contract_size": 1.0,    "min_lot": 0.1,  "lot_step": 0.1,  "point": 0.01,  "digits": 2},
         },
         description="Per-instrument execution parameters from live broker specifications",
     )
@@ -103,23 +114,25 @@ class DataSettings(BaseSettings):
     # Mapping each MT5 index / commodity to its underlying ETF / equity basket
     yahoo_symbols: dict[str, list[str]] = Field(
         default={
-            "NAS100.x": ["QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL"],
-            "SPX500.x": ["SPY", "VOO", "IVV", "XLK", "XLF"],
-            "US30.x":   ["DIA", "BA", "GS", "JPM", "UNH", "CAT"],
-            "GER40.x":  ["EWG", "SAP"],
-            "UK100.x":  ["EWU", "SHEL", "AZN", "HSBC"],
-            "JAP225.x": ["EWJ", "DXJ", "TM", "SONY"],
-            "AUS200.x": ["EWA", "BHP"],
-            "WTI.x":    ["CL=F", "USO", "XLE", "XOM", "CVX"],
-            "WTI":      ["CL=F", "USO", "XLE", "XOM", "CVX"],
-            "XAGUSD.x": ["SLV", "SI=F", "GLD", "PAAS"],
-            "AAPL.x":   ["AAPL", "QQQ", "XLK", "SPY"],
-            "NVDA.x":   ["NVDA", "SOXX", "QQQ", "SPY"],
-            "MSFT.x":   ["MSFT", "QQQ", "XLK", "SPY"],
-            "AMZN.x":   ["AMZN", "XLY", "QQQ", "SPY"],
-            "META.x":   ["META", "XLC", "QQQ", "SPY"],
-            "TSLA.x":   ["TSLA", "XLY", "QQQ", "SPY"],
-            "PLTR.x":   ["PLTR", "QQQ", "XLK", "SPY"],
+            "NAS100.x":   ["QQQ", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL"],
+            "BTCUSD.x":   ["BTC-USD", "ETH-USD", "IBIT", "MSTR", "SPY"],
+            "BTCUSDDATA": ["BTC-USD", "ETH-USD", "IBIT", "MSTR", "SPY"],
+            "SPX500.x":   ["SPY", "VOO", "IVV", "XLK", "XLF"],
+            "US30.x":     ["DIA", "BA", "GS", "JPM", "UNH", "CAT"],
+            "GER40.x":    ["EWG", "SAP"],
+            "UK100.x":    ["EWU", "SHEL", "AZN", "HSBC"],
+            "JAP225.x":   ["EWJ", "DXJ", "TM", "SONY"],
+            "AUS200.x":   ["EWA", "BHP"],
+            "WTI.x":      ["CL=F", "USO", "XLE", "XOM", "CVX"],
+            "WTI":        ["CL=F", "USO", "XLE", "XOM", "CVX"],
+            "XAGUSD.x":   ["SLV", "SI=F", "GLD", "PAAS"],
+            "AAPL.x":     ["AAPL", "QQQ", "XLK", "SPY"],
+            "NVDA.x":     ["NVDA", "SOXX", "QQQ", "SPY"],
+            "MSFT.x":     ["MSFT", "QQQ", "XLK", "SPY"],
+            "AMZN.x":     ["AMZN", "XLY", "QQQ", "SPY"],
+            "META.x":     ["META", "XLC", "QQQ", "SPY"],
+            "TSLA.x":     ["TSLA", "XLY", "QQQ", "SPY"],
+            "PLTR.x":     ["PLTR", "QQQ", "XLK", "SPY"],
         },
         description="Yahoo Finance symbols for each MT5 instrument correlation",
     )

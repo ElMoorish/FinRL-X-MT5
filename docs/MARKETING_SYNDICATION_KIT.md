@@ -33,7 +33,7 @@ When syndicating content to external high-authority platforms (Medium, Substack,
 
 **Target Platforms:** Medium (Towards Data Science / Coinmonks / Level Up Coding), Substack  
 **Canonical Link:** `https://primeclub-quant.vercel.app/research/prop-firm-passkeeper.html`  
-**Tags:** `Machine Learning`, `Algorithmic Trading`, `Finance`, `Python`, `Reinforcement Learning`
+**Tags:** `Machine Learning`, `Algorithmic Trading`, `Finance`, `Python`, `T`
 
 ```markdown
 # Why 94% of Traders Fail Prop Firm Challenges: A Multi-Agent Reinforcement Learning Solution

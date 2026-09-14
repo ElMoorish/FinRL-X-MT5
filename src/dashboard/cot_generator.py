@@ -9,6 +9,7 @@ and symmetric regime-aware weighting.
 
 from __future__ import annotations
 from typing import Any
+from src.config.settings import settings
 from src.council.council import TradingDecision
 
 
@@ -29,6 +30,7 @@ class ChainOfThoughtGenerator:
         rr = decision.expected_rr
         is_trade = decision.is_tradeable
         direction = "LONG (BUY)" if decision.direction > 0 else "SHORT (SELL)" if decision.direction < 0 else "FLAT (NEUTRAL)"
+        regime_upper = str(regime).upper()
         
         e_signals = decision.expert_signals or {}
         e_weights = decision.expert_weights or [0.2, 0.2, 0.2, 0.2, 0.2]
@@ -112,12 +114,12 @@ class ChainOfThoughtGenerator:
         })
 
         # Step 5: Actuary Risk-to-Reward (Directionally Signed Bayesian VaR)
-        min_rr = 1.50 if decision.direction > 0 else 0.50
+        min_rr = 2.00
         rr_status = "PASS" if rr >= min_rr else "FAIL"
         actuary_desc = (
             f"Bayesian VaR model calculates Expected RR = **{rr:.2f}** ({f'≥ {min_rr:.2f} target' if rr >= min_rr else f'< {min_rr:.2f} insufficient reward'}). "
             f"Target SL: {decision.sl_price or 'N/A'} | TP: {decision.tp_price or 'N/A'}. "
-            f"Position Size Factor: {decision.position_size:.2f}x (0.50% base risk)."
+            f"Position Size Factor: {decision.position_size:.2f}x ({settings.mt5.default_risk_pct:.2%} base risk)."
         )
         steps.append({
             "expert": "E5: Actuary & Risk Solvency (Bayesian VaR)",
@@ -128,47 +130,70 @@ class ChainOfThoughtGenerator:
             "narrative": actuary_desc
         })
 
-        # Check H1 Macro Trend Governor using the same shared utility as RiskManager
-        # (OBS-2 fix: ensures CoT display always matches the actual trade blocker result)
-        h1_trend_status = "UNKNOWN"
+        # Check Macro Trend Governor (Defaults to Pure Gaussian HMM Regime Gating)
+        h1_trend_status = f"HMM {regime_upper}"
         h1_trend_passed = True
-        h1_val_str = "H1 EMA50 Check"
-        try:
-            from src.trading.risk_manager import RiskManager
-            h1_ema, bid = RiskManager.get_h1_trend(sym)
-            if h1_ema is not None and bid is not None:
-                if bid > h1_ema:
-                    h1_trend_status = f"BULLISH (Bid {bid:.1f} > EMA50 {h1_ema:.1f})"
-                    if decision.direction < 0:
-                        h1_trend_passed = False
-                        h1_val_str = f"Short Blocked (Bid > H1 EMA50 {h1_ema:.1f})"
+        h1_val_str = f"Phase 3 {regime_upper}"
+        if getattr(settings.mt5, "enable_h1_governor", False):
+            try:
+                from src.trading.risk_manager import RiskManager
+                h1_ema, bid = RiskManager.get_h1_trend(sym)
+                if h1_ema is not None and bid is not None:
+                    if bid > h1_ema:
+                        h1_trend_status = f"BULLISH (Bid {bid:.1f} > EMA50 {h1_ema:.1f})"
+                        if decision.direction < 0:
+                            h1_trend_passed = False
+                            h1_val_str = f"Short Blocked (Bid > H1 EMA50 {h1_ema:.1f})"
+                        else:
+                            h1_val_str = f"Long Aligned (Bid > H1 EMA50 {h1_ema:.1f})"
                     else:
-                        h1_val_str = f"Long Aligned (Bid > H1 EMA50 {h1_ema:.1f})"
-                else:
-                    h1_trend_status = f"BEARISH (Bid {bid:.1f} < EMA50 {h1_ema:.1f})"
-                    if decision.direction > 0:
-                        h1_trend_passed = False
-                        h1_val_str = f"Long Blocked (Bid < H1 EMA50 {h1_ema:.1f})"
-                    else:
-                        h1_val_str = f"Short Aligned (Bid < H1 EMA50 {h1_ema:.1f})"
-        except Exception:
-            pass
+                        h1_trend_status = f"BEARISH (Bid {bid:.1f} < EMA50 {h1_ema:.1f})"
+                        if decision.direction > 0:
+                            h1_trend_passed = False
+                            h1_val_str = f"Long Blocked (Bid < H1 EMA50 {h1_ema:.1f})"
+                        else:
+                            h1_val_str = f"Short Aligned (Bid < H1 EMA50 {h1_ema:.1f})"
+            except Exception:
+                pass
 
-        # Final Consensus Synthesis (High-Conviction Rules)
+        # Determine regime-aware target thresholds (Phase 3 Dynamic Asymmetric Gating)
+        regime_upper = str(regime).upper()
+        if regime_upper == "BULL":
+            is_trend = (direction == "BUY")
+            trend_label = "Trend Long" if is_trend else "Counter-Trend Short"
+            min_sig_target = 0.28 if is_trend else 0.45
+            min_conf_target = 0.70 if is_trend else 0.80
+            min_rr_target = 2.00 if is_trend else 2.50
+        elif regime_upper == "BEAR":
+            is_trend = (direction == "SELL")
+            trend_label = "Trend Short" if is_trend else "Counter-Trend Long"
+            min_sig_target = 0.28 if is_trend else 0.45
+            min_conf_target = 0.70 if is_trend else 0.80
+            min_rr_target = 2.00 if is_trend else 2.50
+        else:
+            trend_label = "Sideways Chop Filter"
+            min_sig_target = 0.35
+            min_conf_target = 0.75
+            min_rr_target = 2.20
+
+        # Final Consensus Synthesis (Phase 3 Dynamic Regime-Aware Rules)
         checkpoints = [
-            {"name": "Signal Conviction", "passed": abs(sig) >= 0.20, "value": f"|{sig:.3f}| ≥ 0.20"},
-            {"name": "Council Confidence", "passed": conf >= 0.70, "value": f"{conf:.1%} ≥ 70.0% (High-Conviction)"},
-            {"name": "Risk / Reward Threshold", "passed": rr >= min_rr, "value": f"{rr:.2f} ≥ {min_rr:.2f} ({'Long' if decision.direction > 0 else 'Short'})"},
-            {"name": "H1 Trend Governor", "passed": h1_trend_passed, "value": h1_val_str},
-            {"name": "Breakeven Protection", "passed": True, "value": "Armed at +1.0R (SL → Entry + Buffer)"},
+            {"name": "Regime Alignment", "passed": True, "value": f"{regime_upper} ({trend_label})"},
+            {"name": "Signal Conviction", "passed": abs(sig) >= min_sig_target, "value": f"|{sig:.3f}| ≥ {min_sig_target:.2f}"},
+            {"name": "Council Confidence", "passed": conf >= min_conf_target, "value": f"{conf:.1%} ≥ {min_conf_target:.1%}"},
+            {"name": "Risk / Reward Threshold", "passed": rr >= min_rr_target, "value": f"{rr:.2f} ≥ {min_rr_target:.2f}"},
+            {"name": "HMM Regime Gate", "passed": is_trade, "value": f"Phase 3 Gating ({trend_label})"},
+            {"name": "Execution Strategy", "passed": True, "value": "TP1 @ 1.25R (50% scale-out) + Chandelier Trail"},
         ]
 
-        if is_trade and h1_trend_passed:
-            verdict = f"APPROVED — High-Conviction consensus reached for {direction}. All 5 risk, confidence, and macro trend checkpoints satisfied."
+        is_approved = is_trade and (h1_trend_passed if getattr(settings.mt5, "enable_h1_governor", False) else True)
+
+        if is_approved:
+            verdict = f"APPROVED — High-Conviction consensus reached for {direction}. All regime-aware, confidence, and risk checkpoints satisfied."
         else:
             failed = [c["name"] for c in checkpoints if not c["passed"]]
-            if not failed and not is_trade:
-                failed = ["Conviction threshold not met"]
+            if not failed and not is_approved:
+                failed = ["Regime conviction threshold not met"]
             failed_str = ", ".join(failed) if failed else "Signal magnitude neutral"
             verdict = f"WITHHELD — Capital preserved. Entry filtered due to: {failed_str}."
 
@@ -179,8 +204,10 @@ class ChainOfThoughtGenerator:
             "confidence": round(conf, 3),
             "regime": regime,
             "h1_trend": h1_trend_status,
+            "regime_gate": f"HMM {regime_upper}",
+            "risk_budget": f"{settings.mt5.default_risk_pct:.2%} Fixed",
             "expected_rr": round(rr, 2),
-            "is_tradeable": bool(is_trade and h1_trend_passed),
+            "is_tradeable": bool(is_approved),
             "position_size": round(decision.position_size, 3),
             "sl_price": decision.sl_price,
             "tp_price": decision.tp_price,

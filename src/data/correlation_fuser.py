@@ -21,7 +21,7 @@ Edge mechanism:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -91,24 +91,46 @@ class CorrelationFuser:
         if cached is not None and not cached.is_empty():
             logger.info(
                 f"  📂 Cache hit: {len(cached):,} fused bars for {symbol} "
-                f"— skipping MT5/Yahoo fetch"
+                f"— filtering to requested window [{date_from.date()} → {date_to.date()}]"
             )
+            if "time" in cached.columns:
+                col_tz = getattr(cached.schema["time"], "time_zone", None)
+                if col_tz:
+                    s_dt = date_from if date_from.tzinfo else date_from.replace(tzinfo=timezone.utc)
+                    e_dt = date_to if date_to.tzinfo else date_to.replace(tzinfo=timezone.utc)
+                else:
+                    s_dt = date_from.replace(tzinfo=None) if date_from.tzinfo else date_from
+                    e_dt = date_to.replace(tzinfo=None) if date_to.tzinfo else date_to
+                cached = cached.filter((pl.col("time") >= s_dt) & (pl.col("time") <= e_dt))
             return cached
 
         # ── Step 1: MT5 Features (Ticks or OHLCV) ─────────────────────────────
-        ticks = self.tick_fetcher.get_ticks_range(symbol, date_from, date_to)
-        if not ticks.is_empty():
-            tick_features = self.engineer.ticks_to_features(ticks)
-            logger.info(f"  ✅ Tick features: {len(tick_features)} M5 bars")
-        else:
-            logger.info(f"  Raw ticks not cached for {symbol}. Fetching M5 bars directly...")
-            days_diff = max(1, (date_to - date_from).days)
-            bars = self.tick_fetcher.get_ohlcv(symbol, timeframe="M5", n_bars=days_diff * 288)
+        days_diff = max(1, (date_to - date_from).days)
+        if days_diff > 120:
+            logger.info(f"  Multi-year range ({days_diff} days) for {symbol}. Fetching M5 bars directly...")
+            bars = self.tick_fetcher.get_ohlcv_range(symbol, date_from, date_to, timeframe="M5")
+            if bars.is_empty():
+                bars = self.tick_fetcher.get_ohlcv(symbol, timeframe="M5", n_bars=days_diff * 288)
             if bars.is_empty():
                 logger.error(f"No MT5 data retrieved for {symbol} — cannot build feature store")
                 return pl.DataFrame()
             tick_features = self.engineer.compute_features(bars)
             logger.info(f"  ✅ Features computed from M5 bars: {len(tick_features)} bars")
+        else:
+            ticks = self.tick_fetcher.get_ticks_range(symbol, date_from, date_to)
+            if not ticks.is_empty():
+                tick_features = self.engineer.ticks_to_features(ticks)
+                logger.info(f"  ✅ Tick features: {len(tick_features)} M5 bars")
+            else:
+                logger.info(f"  Raw ticks not cached for {symbol}. Fetching M5 bars directly...")
+                bars = self.tick_fetcher.get_ohlcv_range(symbol, date_from, date_to, timeframe="M5")
+                if bars.is_empty():
+                    bars = self.tick_fetcher.get_ohlcv(symbol, timeframe="M5", n_bars=days_diff * 288)
+                if bars.is_empty():
+                    logger.error(f"No MT5 data retrieved for {symbol} — cannot build feature store")
+                    return pl.DataFrame()
+                tick_features = self.engineer.compute_features(bars)
+                logger.info(f"  ✅ Features computed from M5 bars: {len(tick_features)} bars")
 
         # ── Step 2: Yahoo Correlation Features ────────────────────────────────
         # Pull extra days ahead to avoid lookahead bias after daily join

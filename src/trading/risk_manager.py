@@ -113,13 +113,14 @@ class RiskManager:
             if active_us_index_trades >= 2:
                 return False, f"Correlated US index limit reached ({active_us_index_trades} active positions in same direction)"
 
-        # 7. H1 Macro Trend Governor: block counter-trend trades against H1 EMA 50
-        h1_ema, bid = RiskManager.get_h1_trend(symbol)
-        if h1_ema is not None and bid is not None:
-            if decision.direction > 0 and bid < h1_ema:
-                return False, f"H1 Macro Trend Governor: Long blocked (Bid {bid:.2f} < H1 EMA50 {h1_ema:.2f})"
-            if decision.direction < 0 and bid > h1_ema:
-                return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
+        # 7. H1 Macro Trend Governor (Retired in favor of Phase 3 Gaussian HMM Pure Regime Gating)
+        if getattr(self.cfg, "enable_h1_governor", False):
+            h1_ema, bid = RiskManager.get_h1_trend(symbol)
+            if h1_ema is not None and bid is not None:
+                if decision.direction > 0 and bid < h1_ema:
+                    return False, f"H1 Macro Trend Governor: Long blocked (Bid {bid:.2f} < H1 EMA50 {h1_ema:.2f})"
+                if decision.direction < 0 and bid > h1_ema:
+                    return False, f"H1 Macro Trend Governor: Short blocked (Bid {bid:.2f} > H1 EMA50 {h1_ema:.2f})"
 
         # 8. Strict Monetary Risk Budget Enforcement (0.50% hard risk ceiling)
         if lots is not None and lots > 0:
