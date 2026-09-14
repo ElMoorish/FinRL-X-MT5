@@ -17,6 +17,10 @@ The evaluation was conducted via the **WalkForward Quant** institutional verific
 | **Win Rate** | **57.39%** (1,421 W / 1,055 L) | > 50.0% | **CONFIRMED** |
 | **Profit Factor** | **1.16** | > 1.10 | **POSITIVE EDGE** |
 | **Net Profit** | **+,697.55** | Net Positive | **+36.98% return on  initial deposit** |
+| **Historical Max Drawdown** | **6.53%** | < 10.0% | **Conservative Risk Profile** |
+| **Monte Carlo P99 Max DD** | **10.89%** | 5,000 resamples | **Low Probability of Ruin (1.9%)** |
+| **FTMO Max Daily Loss** | **,230.59 (2.23%)** | Limit: ,000 (5.0%) | **PASSED (Sub-half threshold)** |
+| **FTMO Max Total Drawdown** | **,532.32 (6.53%)** | Limit: ,000 (10.0%) | **PASSED (,467 Safety Buffer)** |
 | **Robert Pardo WFE** | **143.2%** | > 70.0% | **HIGH CONSISTENCY (OUT-OF-SAMPLE EXPANSION)** |
 | **WFE Classification** | **High Consistency** | Tier 1 Production | **Zero Data Snooping / Curve-Fitting** |
 | **CSCV PBO Overfitting** | **2.7%** | < 20.0% | **LOWEST QUINTILE OVERFITTING RISK** |
